@@ -126,32 +126,39 @@ import Testing
             ("Users/a/Library/Application Support/Foo/Code Cache/js", 30),
             ("Users/a/Library/Mail/V10/m", 999),
             ("Users/a/Library/Weird/thing", 3),
-            ("usr/share/thing", 7),
             ("Users/a/Documents/report.pdf", 500),
+            ("Users/a/Projects/x.swift", 9),
             ("Users/a/.npm/_cacache/x", 20),
+            ("Users/a/.Trash/old.zip", 11),
             ("Applications/App.app/bin", 400),
             ("private/var/folders/zz/abc/T/tmp", 40),
             ("System/Library/AssetsV2/model", 60),
-        ], extraRoot: [("macOS 本体", 1000), ("その他", 80)])
-        let c = Categories.classify(t)
+            ("usr/share/thing", 7),
+        ], extraRoot: [("macOS 本体", 1000), ("Preboot", 200), ("その他", 80)])
+        let c = Categories.classify(t, purgeable: 30)
         let sizes = Dictionary(uniqueKeysWithValues: c.groups.map { ($0.id, $0.size) })
-        #expect(sizes["caches"] == 130)       // Code Cache はアプリの補助データから外してキャッシュに入れる
-        #expect(sizes["app-data"] == 53)  // ~/Library の直下のよく知らないフォルダもアプリの補助データ
+        #expect(sizes["caches"] == 130)       // Code Cache はアプリ補助データから外してキャッシュに入れる
+        #expect(sizes["app-data"] == 53)      // ~/Library の直下のよく知らないフォルダもアプリ補助データ
         #expect(sizes["dev-cache"] == 20)
         #expect(sizes["temporary"] == 40)
         #expect(sizes["macos-data"] == 60)
         #expect(sizes[Categories.snapshotsID] == 80)
         #expect(sizes[Categories.unclassifiedID] == 7)
-        // メール、書類、アプリ、macOS 本体はシステムデータに数えない。
-        #expect(c.total == 130 + 53 + 20 + 40 + 60 + 80 + 7)
-        // パージ可能な分はシステム設定と同じく合計から外せる。
-        #expect(Categories.classify(t, purgeable: 100).totalExcludingPurgeable == c.total - 100)
+        // システムデータ以外の項目。
+        #expect(c.size(of: .mail) == 999)
+        #expect(c.size(of: .documents) == 509)  // 書類フォルダと、ホーム直下のその他
+        #expect(c.size(of: .applications) == 400)
+        #expect(c.size(of: .trash) == 11)
+        #expect(c.size(of: .macOS) == 1200)
+        // システムデータはパージ可能な分を除く。
+        #expect(c.size(of: .systemData) == 130 + 53 + 20 + 40 + 60 + 80 + 7 - 30)
+        #expect(c.areas.last == .systemData)
         let unclassified = try #require(c.groups.first { $0.id == Categories.unclassifiedID })
         #expect(unclassified.nodes.map(t.name) == ["share"])
     }
 
-    /// システム設定がアプリケーションや書類に数える分を、種類ごとに分けて数える。
-    @Test func separatesWhatSettingsCountsElsewhere() {
+    /// システム設定と同じく、入っているアプリの補助データはアプリケーションに、AI モデルは書類に数える。
+    @Test func countsAppSupportAndModelsLikeSettings() {
         let t = makeTree([
             ("Users/a/Library/Application Support/Foo Studio/data.db", 50),
             ("Users/a/Library/Application Support/Foo Studio/Code Cache/js", 30),
@@ -162,15 +169,15 @@ import Testing
             ("Users/a/.lmstudio/bin/x", 6),
         ])
         let apps = InstalledApps(names: ["Foo Studio"], bundleIDs: ["com.example.foo"])
-        let c = Categories.classify(t, purgeable: 0, apps: apps)
-        func group(_ id: String) -> Classification.Group? { c.groups.first { $0.id == id } }
-        #expect(group("app-data")?.size == 57)
-        #expect(group("app-data")?.elsewhere[.applications] == 52) // 入っていない Gone の 5 は残る
-        #expect(group("caches")?.elsewhere[.applications] == 38)
-        #expect(group("ai-models")?.elsewhere[.documents] == 400)
-        #expect(c.settingsTotal == c.total - 52 - 38 - 400)
-        let cache = t.children(0).first.map { _ in (0 ..< t.count).first { t.name($0) == "Code Cache" }! }!
-        #expect(c.settingsBucket(of: cache, in: t) == .applications)
+        let c = Categories.classify(t, apps: apps)
+        let sizes = Dictionary(uniqueKeysWithValues: c.groups.map { ($0.id, $0.size) })
+        #expect(sizes[Categories.appSupportID] == 90) // 中のキャッシュも含める
+        #expect(sizes["app-data"] == 5)               // 入っていない Gone は残る
+        #expect(sizes["caches"] == nil)
+        #expect(sizes["ai-model-files"] == 400)
+        #expect(sizes["ai-models"] == 6)
+        #expect(c.size(of: .applications) == 90)
+        #expect(c.size(of: .documents) == 400)
     }
 
     @Test func globMatching() {

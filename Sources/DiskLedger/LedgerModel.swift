@@ -218,9 +218,6 @@ final class LedgerModel {
                 if t.isDirectory(i), i != 0, AppNames.perAppParents.contains(t.name(Int(t.parent[i]))) {
                     detail = AppNames.name(forFolder: name).map { atCategoryRoot ? "\($0)・\(detail ?? "")" : $0 } ?? detail
                 }
-                if let bucket = classification?.settingsBucket(of: i, in: t) {
-                    detail = [detail, bucket.rawValue].compactMap { $0 }.joined(separator: "・")
-                }
                 return ItemRow(id: i, name: name, detail: detail, size: size, share: Double(size) / denominator,
                                flags: t.flags[i], modified: t.modified[i])
             }

@@ -9,6 +9,26 @@ public enum Verdict: String, Sendable, CaseIterable {
     case system = "システム管理"
     case irreplaceable = "復元不可"
     case unknown = "要確認"
+    case trashed = "削除予定"
+}
+
+/// システム設定のストレージの画面に並ぶ項目。種類はこのどれかに属する。
+public enum StorageArea: String, Sendable, CaseIterable, Identifiable {
+    case applications = "アプリケーション"
+    case documents = "書類"
+    case icloud = "iCloud Drive"
+    case photos = "写真"
+    case music = "ミュージック"
+    case musicCreation = "音楽制作"
+    case mail = "メール"
+    case messages = "メッセージ"
+    case developer = "デベロッパ"
+    case trash = "ゴミ箱"
+    case otherUsers = "その他のユーザ・共有"
+    case macOS = "macOS"
+    case systemData = "システムデータ"
+
+    public var id: String { rawValue }
 }
 
 /// システム設定で「システムデータ」にまとめられるものを、場所の決まりで種類に分ける。
@@ -19,10 +39,13 @@ public struct CategoryRule: Sendable, Identifiable {
     public let name: String
     public let verdict: Verdict
     public let summary: String
+    public let area: StorageArea
     let patterns: [[String]]
 
-    init(_ id: String, _ name: String, _ verdict: Verdict, _ summary: String, _ patterns: [String]) {
+    init(_ id: String, _ name: String, _ verdict: Verdict, _ summary: String, _ patterns: [String],
+         area: StorageArea = .systemData) {
         self.id = id
+        self.area = area
         self.name = name
         self.verdict = verdict
         self.summary = summary
@@ -35,8 +58,72 @@ public struct CategoryRule: Sendable, Identifiable {
 public enum Categories {
     public static let snapshotsID = "snapshots"
     public static let unclassifiedID = "unclassified"
+    public static let appSupportID = "app-support"
+    public static let homeOtherID = "home-other"
+    public static let macOSVolumeID = "macos-volume"
+    /// 走査が根に足す、ディスクにない項目のうち macOS に数えるもの。
+    public static let macOSSyntheticNames: Set<String> = ["macOS 本体", "Preboot", "VM", "Update", "Recovery"]
 
     public static let rules: [CategoryRule] = [
+        // システム設定でシステムデータ以外の項目に数えられるもの。同じ場所に当たるときはシステムデータの決まりより優先する。
+        .init("apps", "アプリ本体", .reinstall,
+              "インストール済みアプリの本体。削除はアプリのアンインストールに当たり、App Store や配布元から再導入できる。",
+              ["Applications", "~/Applications"], area: .applications),
+        .init(appSupportID, "アプリ補助データ", .appData,
+              "インストール済みアプリに属する設定、キャッシュ、作業データ。システム設定はアプリ本体と合わせて計上する。アプリを使い続ける限り削除は推奨しない。",
+              [], area: .applications),
+        .init("documents-folder", "書類フォルダ", .irreplaceable,
+              "利用者が作成、保存したファイル。削除すると復元できない。",
+              ["~/Documents"], area: .documents),
+        .init("desktop", "デスクトップ", .irreplaceable,
+              "デスクトップに置いたファイル。",
+              ["~/Desktop"], area: .documents),
+        .init("downloads", "ダウンロード", .unknown,
+              "ブラウザなどで取得したファイル。導入済みのインストーラなど、不要になったものが残りやすい。",
+              ["~/Downloads"], area: .documents),
+        .init("movies", "ムービー", .irreplaceable,
+              "動画と、動画編集アプリの作業ファイル。編集アプリのキャッシュを含む場合がある。",
+              ["~/Movies"], area: .documents),
+        .init("ai-model-files", "AI モデル", .redownload,
+              "LM Studio などで取得したモデル本体。システム設定は書類として計上する。削除後の使用には再取得が必要。",
+              ["~/.lmstudio/models", "~/.ollama/models", "~/.cache/huggingface"], area: .documents),
+        .init("cloud-storage", "クラウドストレージ", .redownload,
+              "Google Drive や OneDrive などの同期フォルダのうち、手元に保持している分。システム設定はシステムデータに計上する。各サービスの設定で手元の複製を減らせる。",
+              ["~/Library/CloudStorage"]),
+        .init(homeOtherID, "ホームのその他", .unknown,
+              "ホームフォルダ直下の、上記以外のフォルダとファイル。",
+              [], area: .documents),
+        .init("pictures", "ピクチャ", .irreplaceable,
+              "写真ライブラリ以外の画像。",
+              ["~/Pictures"], area: .documents),
+        .init("photos-library", "写真ライブラリ", .irreplaceable,
+              "写真アプリのライブラリ。iCloud 写真を使う場合、最適化の設定で手元の容量を減らせる。",
+              ["~/Pictures/*.photoslibrary"], area: .photos),
+        .init("icloud-drive", "iCloud Drive", .redownload,
+              "iCloud Drive のうち手元に保持している分。Finder から「ダウンロードを削除」で手元の複製のみを外せる。",
+              ["~/Library/Mobile Documents"], area: .icloud),
+        .init("music-library", "ミュージック", .irreplaceable,
+              "ミュージックアプリのライブラリと、その他の音楽ファイル。",
+              ["~/Music"], area: .music),
+        .init("music-creation", "GarageBand・Logic 音源", .redownload,
+              "GarageBand と Logic Pro の音源とループ。各アプリの音源管理から削除、再取得できる。",
+              ["Library/Application Support/GarageBand", "Library/Application Support/Logic", "Library/Audio/Apple Loops",
+               "~/Library/Application Support/GarageBand", "~/Library/Application Support/Logic"], area: .musicCreation),
+        .init("mail", "メール", .irreplaceable,
+              "メールアプリが保持するメッセージと添付ファイル。",
+              ["~/Library/Mail", "~/Library/Containers/com.apple.mail"], area: .mail),
+        .init("messages", "メッセージ", .irreplaceable,
+              "メッセージアプリの履歴と添付ファイル。",
+              ["~/Library/Messages"], area: .messages),
+        .init("trash", "ゴミ箱", .trashed,
+              "ゴミ箱に入れたファイル。ゴミ箱を空にすると削除される。",
+              ["~/.Trash"], area: .trash),
+        .init("shared", "共有フォルダ", .unknown,
+              "Mac の全利用者が使える共有フォルダ。",
+              ["Users/Shared"], area: .otherUsers),
+        .init(macOSVolumeID, "macOS ボリューム", .system,
+              "macOS 本体の読取専用ボリュームと、起動、復旧、仮想メモリ用のボリューム。macOS の管理下にある。",
+              [], area: .macOS),
         .init("caches", "キャッシュ", .regenerable,
               "アプリや macOS が高速化のために保持するデータ。削除しても必要時に再生成されるが、直後は起動や表示が遅くなる場合がある。",
               ["~/Library/Caches", "Library/Caches", "System/Library/Caches",
@@ -67,7 +154,8 @@ public enum Categories {
               "Xcode のビルド中間生成物と、接続端末用のシンボル情報。削除しても次回のビルドや接続時に再生成される。",
               ["~/Library/Developer/Xcode/DerivedData", "~/Library/Developer/Xcode/iOS DeviceSupport",
                "~/Library/Developer/Xcode/macOS DeviceSupport", "~/Library/Developer/Xcode/watchOS DeviceSupport",
-               "~/Library/Developer/Xcode/tvOS DeviceSupport", "~/Library/Developer/Xcode/visionOS DeviceSupport"]),
+               "~/Library/Developer/Xcode/tvOS DeviceSupport", "~/Library/Developer/Xcode/visionOS DeviceSupport",
+               "~/Library/Developer/Xcode/Archives", "~/Library/Developer/Xcode/Products"], area: .developer),
         .init("simulators", "シミュレータ", .redownload,
               "iOS などのシミュレータ本体と端末データ。不要な OS 版は Xcode の設定から削除できる。",
               ["~/Library/Developer/CoreSimulator", "Library/Developer/CoreSimulator",
@@ -103,9 +191,7 @@ public enum Categories {
               ["~/Library/Audio", "Library/Audio", "~/Library/Application Support/Muse Hub",
                "~/Library/Application Support/MuseSampler", "Library/Application Support/Muse Hub",
                "~/Library/Application Support/Native Instruments", "Library/Application Support/Native Instruments",
-               "~/Library/Application Support/Spitfire Audio", "Library/Application Support/Spitfire Audio",
-               "~/Library/Application Support/Logic", "Library/Application Support/Logic",
-               "~/Library/Application Support/GarageBand", "Library/Application Support/GarageBand"]),
+               "~/Library/Application Support/Spitfire Audio", "Library/Application Support/Spitfire Audio"]),
         .init("macos-internal", "macOS 内部データ", .system,
               "学習、同期、セキュリティ、更新管理のために macOS が保持するデータ。キーチェーンを含む。macOS の管理下にあり、手動削除は不具合の原因となる。",
               ["private", ".fseventsd", ".DocumentRevisions-V100", ".PreviousSystemInformation", ".MobileBackups",
@@ -121,6 +207,7 @@ public enum Categories {
                "~/Library/Preferences", "~/Library/Saved Application State", "Library/Preferences",
                // 上のどれにも当たらない ~/Library や /Library の直下と、ホームの隠しフォルダは、ほぼアプリや道具の置き場。
                "~/Library/*", "Library/*", "~/.*"]),
+
     ]
 
     public static let snapshotsRule = CategoryRule(
@@ -139,12 +226,8 @@ public enum Categories {
         ["usr"], ["opt"], [".*"], ["cores"],
     ]
 
-    /// システム設定で別の項目として出るもの。
-    static let excluded: [[String]] = [
-        ["Users", "*", "Library", "Mail"], ["Users", "*", "Library", "Messages"],
-        ["Users", "*", "Library", "Mobile Documents"], ["Users", "*", "Library", "CloudStorage"],
-        ["Users", "*", ".Trash"], ["Applications"], ["Volumes"],
-    ]
+    /// 数えないもの。別のボリュームの入口が並ぶ場所。
+    static let excluded: [[String]] = [["Volumes"]]
 }
 
 /// 分類の結果。
@@ -157,9 +240,6 @@ public struct Classification: Sendable {
         public var size: UInt64
         /// nodes のうち、中に別の種類が入れ子になっているものと、その容量。
         public var nested: [Int: UInt64] = [:]
-        /// size のうち、システム設定では別の項目に数えられていると思われる分。
-        public var elsewhere: [SettingsBucket: UInt64] = [:]
-        public var elsewhereTotal: UInt64 { elsewhere.values.reduce(0, +) }
 
         /// ノードの容量から入れ子の別の種類を除いた分。
         public func ownSize(of node: Int, in t: TreeStorage) -> UInt64 {
@@ -168,34 +248,28 @@ public struct Classification: Sendable {
         public var id: String { rule.id }
     }
 
+    /// 容量の大きい順。
     public var groups: [Group]
-    /// 空きが必要になれば macOS が消せる量。システム設定はこれをシステムデータに含めない。
+    /// 空きが必要になれば macOS が消せる量。システム設定はこれを使用済みに含めない。
     public var purgeable: UInt64 = 0
-    public var total: UInt64 { groups.reduce(0) { $0 + $1.size } }
-    /// パージ可能な分を除いた合計。
-    public var totalExcludingPurgeable: UInt64 { total - min(total, purgeable) }
-    /// システム設定が別の項目に数えていると思われる分の、項目ごとの合計。
-    public var elsewhere: [SettingsBucket: UInt64] {
-        groups.reduce(into: [:]) { sum, g in g.elsewhere.forEach { sum[$0.key, default: 0] += $0.value } }
-    }
-    /// システム設定の数え方に近づけた合計。パージ可能な分と、別の項目に数えられる分を除く。
-    public var settingsTotal: UInt64 {
-        let other = elsewhere.values.reduce(0, +)
-        return totalExcludingPurgeable - min(totalExcludingPurgeable, other)
-    }
-    /// 別の項目に数えられる範囲の入口のノード。
-    public var bucketStarts: [Int: SettingsBucket] = [:]
 
-    /// ノードかその祖先が、別の項目に数えられる範囲に入っているか。
-    public func settingsBucket(of node: Int, in t: TreeStorage) -> SettingsBucket? {
-        guard !bucketStarts.isEmpty else { return nil }
-        var p = node
-        while true {
-            if let b = bucketStarts[p] { return b }
-            if p == 0 { return nil }
-            p = Int(t.parent[p])
-        }
+    public func groups(in area: StorageArea) -> [Group] { groups.filter { $0.rule.area == area } }
+
+    /// 項目の容量。システムデータはシステム設定に合わせ、パージ可能な分を除く。
+    public func size(of area: StorageArea) -> UInt64 {
+        let sum = groups(in: area).reduce(0) { $0 + $1.size }
+        return area == .systemData ? sum - min(sum, purgeable) : sum
     }
+
+    /// 中身のある項目。システム設定と同じく、macOS とシステムデータを最後に置き、ほかは容量の大きい順。
+    public var areas: [StorageArea] {
+        let present = StorageArea.allCases.filter { size(of: $0) > 0 }
+        let tail: [StorageArea] = [.macOS, .systemData]
+        return present.filter { !tail.contains($0) }.sorted { size(of: $0) > size(of: $1) } + tail.filter(present.contains)
+    }
+
+    /// システム設定の使用済みに当たる合計。
+    public var usedTotal: UInt64 { StorageArea.allCases.reduce(0) { $0 + size(of: $1) } }
 }
 
 extension Categories {
@@ -204,84 +278,84 @@ extension Categories {
         var nodes = Array(repeating: [Int](), count: allRules.count)
         var sizes = Array(repeating: Int64(0), count: allRules.count)
         var nested = Array(repeating: [Int: UInt64](), count: allRules.count)
-        var elsewhere = Array(repeating: [SettingsBucket: Int64](), count: allRules.count)
-        var bucketStarts: [Int: SettingsBucket] = [:]
         let snapshotsIndex = rules.count
         let unclassifiedIndex = rules.count + 1
+        let index = { (id: String) in rules.firstIndex { $0.id == id }! }
+        let appSupportIndex = index(appSupportID)
+        let homeOtherIndex = index(homeOtherID)
+        let macOSIndex = index(macOSVolumeID)
 
         /// owner は (種類, その種類に当たった上のノード)。
-        /// bucket はこのノードの容量を数える設定の項目、ownerBucket は上の種類がこのノードの容量を数えていた項目。
-        func assign(_ node: Int, to rule: Int, owner: (rule: Int, node: Int)?,
-                    bucket: SettingsBucket? = nil, ownerBucket: SettingsBucket? = nil) {
+        func assign(_ node: Int, to rule: Int, owner: (rule: Int, node: Int)?) {
             let size = Int64(t.size[node])
             nodes[rule].append(node)
             sizes[rule] += size
-            if let bucket { elsewhere[rule][bucket, default: 0] += size }
             if let owner {
                 sizes[owner.rule] -= size
                 nested[owner.rule][owner.node, default: 0] += t.size[node]
-                if let ownerBucket { elsewhere[owner.rule][ownerBucket, default: 0] -= size }
             }
         }
 
         var components: [String] = []
-        func walk(_ node: Int, owner: (rule: Int, node: Int)?, bucket inherited: SettingsBucket?) {
+        func walk(_ node: Int, owner: (rule: Int, node: Int)?) {
             let rel = components
             if Glob.matchesAny(excluded, rel) { return }
+            // システムデータ以外の項目に入ったら、その中ではシステムデータの決まりを当てない。
+            // たとえばアプリ補助データの中のキャッシュは、システム設定と同じくアプリケーションに数える。
+            let systemContext = owner.map { allRules[$0.rule].area == .systemData } ?? true
+            func allowed(_ i: Int) -> Bool { systemContext || rules[i].area != .systemData }
+            let canExtend = rules.indices.contains { i in allowed(i) && rules[i].patterns.contains { Glob.canExtend($0[...], rel[...]) } }
             let inScope = Glob.matchesAnyPrefix(scope, rel)
             var current = owner
-            let start = inherited == nil ? settingsBucket(rel, apps: apps) : nil
-            let bucket = inherited ?? start
-            if let start { bucketStarts[node] = start }
-            if let hit = rules.indices.first(where: { i in rules[i].patterns.contains { Glob.full($0[...], rel[...]) } }) {
-                // 範囲がここから始まるなら、上の種類はこのノードを別の項目としては数えていない。
-                assign(node, to: hit, owner: owner, bucket: bucket, ownerBucket: start == nil ? bucket : nil)
+            let hit: Int? = systemContext && isAppSupport(rel, apps: apps) ? appSupportIndex
+                : rules.indices.first { i in allowed(i) && rules[i].patterns.contains { Glob.full($0[...], rel[...]) } }
+            if let hit {
+                assign(node, to: hit, owner: owner)
                 current = (hit, node)
-            } else if owner == nil, inScope, !t.flags[node].contains(.synthetic),
-                      !rules.contains(where: { $0.patterns.contains { Glob.canExtend($0[...], rel[...]) } }) {
-                assign(node, to: unclassifiedIndex, owner: nil, bucket: bucket)
+            } else if owner == nil, rel.count == 3, rel[0] == "Users", !canExtend {
+                assign(node, to: homeOtherIndex, owner: nil)
                 return
-            } else if let start, let owner {
-                // 種類の中で範囲が始まった。その分を上の種類の中で別の項目に移す。
-                elsewhere[owner.rule][start, default: 0] += Int64(t.size[node])
+            } else if owner == nil, inScope, !canExtend {
+                assign(node, to: unclassifiedIndex, owner: nil)
+                return
             }
-            let mayStartBelow = bucket == nil
-                && (perAppParents + documentPatterns).contains { Glob.canExtend($0[...], rel[...]) }
+            let mayFindApp = current.map { allRules[$0.rule].area == .systemData } ?? true
+                && perAppParents.contains { Glob.canExtend($0[...], rel[...]) }
             guard t.isDirectory(node),
-                  rules.contains(where: { $0.patterns.contains { Glob.canExtend($0[...], rel[...]) } })
-                    || mayStartBelow
+                  canExtend || mayFindApp
                     || (current == nil && !inScope && couldEnterScope(rel)) || (current == nil && inScope)
             else { return }
             for child in t.children(node) {
                 if t.flags[child].contains(.synthetic) { continue }
                 components.append(t.name(child))
-                walk(child, owner: current, bucket: bucket)
+                walk(child, owner: current)
                 components.removeLast()
             }
         }
 
         func couldEnterScope(_ rel: [String]) -> Bool {
-            scope.contains { Glob.canExtend($0[...], rel[...]) }
+            (scope + [["Users", "*", "*"]]).contains { Glob.canExtend($0[...], rel[...]) }
         }
 
         for child in t.children(0) {
             if t.flags[child].contains(.synthetic) {
-                // 「その他」はスナップショットなど。「macOS 本体」はシステム設定でも別に出るので数えない。
-                if t.name(child) == "その他" { assign(child, to: snapshotsIndex, owner: nil) }
+                // 「その他」はスナップショットなど、ファイルとして数えられなかった分。
+                let name = t.name(child)
+                if name == "その他" { assign(child, to: snapshotsIndex, owner: nil) }
+                if macOSSyntheticNames.contains(name) { assign(child, to: macOSIndex, owner: nil) }
                 continue
             }
             components = [t.name(child)]
-            walk(child, owner: nil, bucket: nil)
+            walk(child, owner: nil)
         }
 
         let groups = allRules.indices.compactMap { i -> Classification.Group? in
             guard !nodes[i].isEmpty, sizes[i] > 0 else { return nil }
-            var group = Classification.Group(rule: allRules[i], nodes: [], size: UInt64(max(0, sizes[i])), nested: nested[i],
-                                             elsewhere: elsewhere[i].compactMapValues { $0 > 0 ? UInt64($0) : nil })
+            var group = Classification.Group(rule: allRules[i], nodes: [], size: UInt64(max(0, sizes[i])), nested: nested[i])
             group.nodes = nodes[i].sorted { group.ownSize(of: $0, in: t) > group.ownSize(of: $1, in: t) }
             return group
         }
-        return Classification(groups: groups.sorted { $0.size > $1.size }, purgeable: purgeable, bucketStarts: bucketStarts)
+        return Classification(groups: groups.sorted { $0.size > $1.size }, purgeable: purgeable)
     }
 }
 

@@ -152,7 +152,7 @@ public final class DiskScanner: @unchecked Sendable {
                 return
             }
             var count = listing.entries.count
-            if job.node == 0, volume != nil, options.includeVolumeSummary { count += 2 }
+            if job.node == 0, let volume, options.includeVolumeSummary { count += 2 + volume.auxiliary.count }
             t.firstChild[parent] = UInt32(t.count)
             t.childCount[parent] = UInt32(count)
 
@@ -200,6 +200,10 @@ public final class DiskScanner: @unchecked Sendable {
             if job.node == 0, let volume, options.includeVolumeSummary {
                 t.appendNode(parent: 0, name: "macOS 本体", size: volume.systemUsed, flags: .synthetic, modified: 0)
                 addedBytes &+= volume.systemUsed
+                for (name, used) in volume.auxiliary.sorted(by: { $0.key < $1.key }) {
+                    t.appendNode(parent: 0, name: name, size: used, flags: .synthetic, modified: 0)
+                    addedBytes &+= used
+                }
                 otherNode = t.count
                 t.appendNode(parent: 0, name: "その他", size: 0, flags: .synthetic, modified: 0)
             }
@@ -221,7 +225,7 @@ public final class DiskScanner: @unchecked Sendable {
     private func finish() {
         if !cancelled, let volume, let otherNode {
             tree.write { t in
-                let scanned = t.size[0] &- volume.systemUsed
+                let scanned = t.size[0] &- volume.systemUsed &- volume.auxiliaryTotal
                 let rest = volume.dataUsed > scanned ? volume.dataUsed - scanned : 0
                 t.size[otherNode] = rest
                 t.addSize(rest, from: 0)

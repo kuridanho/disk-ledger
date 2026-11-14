@@ -18,12 +18,14 @@ public enum TreeArchive {
         var dataUsed: UInt64
         var systemUsed: UInt64
         var purgeable: UInt64?
+        var auxiliary: [String: UInt64]?
     }
 
     public static func write(_ t: TreeStorage, volume: VolumeInfo?, to url: URL) throws {
         let header = Header(rootPath: t.rootPath, count: t.count, nameBytes: t.nameBytes.count,
                             volume: volume.map { VolumeRecord(name: $0.name, capacity: $0.capacity, available: $0.available,
-                                                              dataUsed: $0.dataUsed, systemUsed: $0.systemUsed, purgeable: $0.purgeable) })
+                                                              dataUsed: $0.dataUsed, systemUsed: $0.systemUsed, purgeable: $0.purgeable,
+                                                              auxiliary: $0.auxiliary) })
         var data = try JSONEncoder().encode(header)
         data.append(0x0A)
         func append<T>(_ array: [T]) { array.withUnsafeBytes { data.append(contentsOf: $0) } }
@@ -67,7 +69,8 @@ public enum TreeArchive {
         t.nameLength = try take(n, as: UInt16.self)
         t.nameBytes = try take(header.nameBytes, as: UInt8.self)
         let volume = header.volume.map {
-            VolumeInfo(name: $0.name, capacity: $0.capacity, available: $0.available, dataUsed: $0.dataUsed, systemUsed: $0.systemUsed, purgeable: $0.purgeable ?? 0)
+            VolumeInfo(name: $0.name, capacity: $0.capacity, available: $0.available, dataUsed: $0.dataUsed, systemUsed: $0.systemUsed, purgeable: $0.purgeable ?? 0,
+                       auxiliary: $0.auxiliary ?? [:])
         }
         return (t, volume)
     }

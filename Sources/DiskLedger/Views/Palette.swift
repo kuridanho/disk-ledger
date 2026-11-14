@@ -19,7 +19,7 @@ enum Palette {
                 : NSColor(red: 0.20, green: 0.44, blue: 0.36, alpha: 1)
         })
         case .redownload, .reinstall: accent
-        case .appData, .system, .unknown: .secondary
+        case .appData, .system, .unknown, .trashed: .secondary
         case .irreplaceable: Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
                 ? NSColor(red: 0.86, green: 0.68, blue: 0.38, alpha: 1)

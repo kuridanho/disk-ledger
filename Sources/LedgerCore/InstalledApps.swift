@@ -1,14 +1,5 @@
 import Foundation
 
-/// システム設定のストレージの画面が、システムデータではなく別の項目に数えていると思われるもの。
-/// Apple は振り分けの決まりを公開していないので、2026-11-14 に実機の数値と突き合わせて推測した。
-public enum SettingsBucket: String, Sendable, CaseIterable {
-    /// 入っているアプリの補助データ。設定では「アプリケーション」に入る。
-    case applications = "アプリ計上"
-    /// 手元に落としたローカル AI のモデル。設定では「書類」に入る。
-    case documents = "書類計上"
-}
-
 /// 入っているアプリの名前とバンドル ID。アプリの補助データがどのアプリのものかを決めるのに使う。
 public struct InstalledApps: Sendable {
     var names: Set<String> = []
@@ -75,17 +66,9 @@ extension Categories {
         ["Users", "*", "Library", "Group Containers"],
     ]
 
-    /// 設定では書類に数えられているらしい場所。
-    static let documentPatterns: [[String]] = [
-        ["Users", "*", ".lmstudio", "models"], ["Users", "*", ".ollama", "models"],
-        ["Users", "*", ".cache", "huggingface"],
-    ]
-
-    static func settingsBucket(_ rel: [String], apps: InstalledApps) -> SettingsBucket? {
-        if Glob.matchesAny(documentPatterns, rel) { return .documents }
-        if rel.count >= 5, Glob.matchesAny(perAppParents, Array(rel.dropLast())), apps.owns(rel.last!, in: rel[rel.count - 2]) {
-            return .applications
-        }
-        return nil
+    /// アプリ補助データの置き場の直下で、入っているアプリのものか。システム設定はこれをアプリケーションに数える。
+    /// Apple は決まりを公開していないので、2026-11-14 に実機の数値と突き合わせて推測した。
+    static func isAppSupport(_ rel: [String], apps: InstalledApps) -> Bool {
+        rel.count >= 5 && Glob.matchesAny(perAppParents, Array(rel.dropLast())) && apps.owns(rel.last!, in: rel[rel.count - 2])
     }
 }

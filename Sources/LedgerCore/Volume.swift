@@ -14,6 +14,14 @@ public struct VolumeInfo: Sendable {
     /// 空きが必要になれば macOS が消せる量（ローカルスナップショット、iCloud の控えなど）。
     /// システム設定の使用済みはこれを除いた量で、空きはこれを含めた量になる。
     public var purgeable: UInt64 = 0
+    /// 同じコンテナにある起動、復旧、仮想メモリ用のボリュームの使用量。システム設定は macOS に数える。
+    public var auxiliary: [String: UInt64] = [:]
+    public var auxiliaryTotal: UInt64 { auxiliary.values.reduce(0, +) }
+
+    public static let auxiliaryVolumes: [(name: String, path: String)] = [
+        ("Preboot", "/System/Volumes/Preboot"), ("VM", "/System/Volumes/VM"),
+        ("Update", "/System/Volumes/Update"), ("Recovery", "/Volumes/Recovery"),
+    ]
 
     public static let dataVolumePath = "/System/Volumes/Data"
 
@@ -29,7 +37,8 @@ public struct VolumeInfo: Sendable {
             available: available,
             dataUsed: used(at: dataVolumePath),
             systemUsed: used(at: "/"),
-            purgeable: important > available ? important - available : 0
+            purgeable: important > available ? important - available : 0,
+            auxiliary: Dictionary(uniqueKeysWithValues: auxiliaryVolumes.map { ($0.name, used(at: $0.path)) }.filter { $0.1 > 0 })
         )
     }
 

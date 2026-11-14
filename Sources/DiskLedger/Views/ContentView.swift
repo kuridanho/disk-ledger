@@ -41,20 +41,30 @@ struct ContentView: View {
     }
 }
 
-/// 左の一覧。システムデータの合計と、種類を容量の大きい順に並べる。
+/// 左の一覧。システム設定のストレージと同じ項目ごとに節を立て、その中に種類を容量の大きい順に並べる。
 struct SidebarView: View {
     @Environment(LedgerModel.self) private var model
+    @State private var collapsed: Set<StorageArea> = []
 
     var body: some View {
         @Bindable var model = model
         List(selection: $model.sidebarSelection) {
             if let classification = model.classification {
-                SummaryBlock(classification: classification)
+                SummaryBlock(classification: classification, volume: model.volume)
                     .listRowSeparator(.hidden)
-                Section("内訳") {
-                    ForEach(classification.groups) { group in
-                        CategoryRow(group: group)
-                            .tag(SidebarItem.category(group.id))
+                ForEach(classification.areas) { area in
+                    Section(isExpanded: expanded(area)) {
+                        ForEach(classification.groups(in: area)) { group in
+                            CategoryRow(group: group)
+                                .tag(SidebarItem.category(group.id))
+                        }
+                    } header: {
+                        HStack {
+                            Text(area.rawValue)
+                            Spacer()
+                            Text(Format.bytes(classification.size(of: area)))
+                                .monospacedDigit()
+                        }
                     }
                 }
             }
@@ -65,38 +75,40 @@ struct SidebarView: View {
         }
         .listStyle(.sidebar)
     }
+
+    private func expanded(_ area: StorageArea) -> Binding<Bool> {
+        Binding(get: { !collapsed.contains(area) },
+                set: { if $0 { collapsed.remove(area) } else { collapsed.insert(area) } })
+    }
 }
 
-/// 一覧の先頭。システム設定の数え方に近づけた合計と、除外した分。
+/// 一覧の先頭。システム設定の使用済みに当たる合計。
 struct SummaryBlock: View {
     var classification: Classification
+    var volume: VolumeInfo?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("システムデータ")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(Format.bytes(classification.settingsTotal))
-                    .font(.system(.title, design: .rounded, weight: .semibold))
-                    .monospacedDigit()
-            }
-            let excluded = [("パージ可能", classification.purgeable)]
-                + SettingsBucket.allCases.map { ($0.rawValue, classification.elsewhere[$0] ?? 0) }
-            if excluded.contains(where: { $0.1 > 0 }) {
-                Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
-                    ForEach(excluded.filter { $0.1 > 0 }, id: \.0) { label, size in
-                        GridRow {
-                            Text(label)
-                            Text(Format.bytes(size))
-                                .monospacedDigit()
-                                .gridColumnAlignment(.trailing)
-                        }
-                    }
-                }
+        VStack(alignment: .leading, spacing: 4) {
+            Text("使用済み")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .help("システム設定のシステムデータに含まれないため、合計から除外")
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(Format.bytes(classification.usedTotal))
+                    .font(.system(.title, design: .rounded, weight: .semibold))
+                    .monospacedDigit()
+                if let volume, volume.capacity > 0 {
+                    Text("／\(Format.bytes(volume.capacity))")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            if classification.purgeable > 0 {
+                Text("パージ可能 \(Format.bytes(classification.purgeable)) を除外")
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .help("空き容量の不足時に macOS が自動削除する分。システム設定と同じく使用済みに含めない")
             }
         }
         .padding(.vertical, 6)
@@ -132,12 +144,6 @@ struct CategoryRow: View {
                 Text(Format.bytes(group.size))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                ForEach(group.elsewhere.sorted { $0.value > $1.value }, id: \.key) { bucket, size in
-                    Text("\(bucket.rawValue) \(Format.bytes(size))")
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.tertiary)
-                }
             }
         }
         .padding(.vertical, 3)
@@ -151,6 +157,12 @@ struct DetailHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let group = model.selectedGroup {
+                Text(group.rule.area.rawValue)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.bottom, -6)
+            }
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(model.title)
                     .font(.title2.weight(.semibold))
@@ -163,12 +175,6 @@ struct DetailHeader: View {
             if let group = model.selectedGroup {
                 HStack(spacing: 8) {
                     VerdictTag(verdict: group.rule.verdict)
-                    ForEach(group.elsewhere.sorted { $0.value > $1.value }, id: \.key) { bucket, size in
-                        Text("うち\(bucket.rawValue) \(Format.bytes(size))")
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                    }
                     Button { showsInfo.toggle() } label: { Image(systemName: "info.circle") }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)

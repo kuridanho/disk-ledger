@@ -24,18 +24,17 @@ enum ClassificationReport {
         let purgeable = (volume?.purgeable).flatMap { $0 > 0 ? $0 : nil }
             ?? ProcessInfo.processInfo.environment["PURGEABLE"].flatMap(UInt64.init) ?? 0
         let c = Categories.classify(t, purgeable: purgeable, apps: .current())
-        out("\n== システムデータの合計 \(fmt(c.total))  パージ可能 \(fmt(c.purgeable)) を除くと \(fmt(c.totalExcludingPurgeable))")
-        out("   設定で別の項目: " + c.elsewhere.map { "\($0.key.rawValue) \(fmt($0.value))" }.joined(separator: "、") + "  設定に近い合計 \(fmt(c.settingsTotal))")
-        for (node, bucket) in c.bucketStarts.sorted(by: { t.size[$0.key] > t.size[$1.key] }).prefix(30) {
-            out("   \(bucket.rawValue) \(fmt(t.size[node]).padding(toLength: 10, withPad: " ", startingAt: 0)) \(short(t, node))")
-        }
-        for g in c.groups {
-            let other = g.elsewhere.map { "\($0.key.rawValue) \(fmt($0.value))" }.joined(separator: "、")
-            out("\n## \(g.rule.name)  \(fmt(g.size))  (\(g.nodes.count) 箇所)" + (other.isEmpty ? "" : "  うち設定で\(other)"))
-            for n in g.nodes.prefix(g.rule.id == Categories.unclassifiedID ? 40 : 10) {
-                let own = g.ownSize(of: n, in: t)
-                guard own >= 1_000_000 else { continue }
-                out("  \(fmt(own).padding(toLength: 10, withPad: " ", startingAt: 0)) \(short(t, n))")
+        out("\n== 使用済み \(fmt(c.usedTotal))  パージ可能 \(fmt(c.purgeable)) を除く")
+        for area in c.areas { out("  \(area.rawValue)  \(fmt(c.size(of: area)))") }
+        for area in c.areas {
+            out("\n# \(area.rawValue)  \(fmt(c.size(of: area)))")
+            for g in c.groups(in: area) {
+                out("\n## \(g.rule.name)  \(fmt(g.size))  (\(g.nodes.count) 箇所)")
+                for n in g.nodes.prefix(g.rule.id == Categories.unclassifiedID ? 40 : 8) {
+                    let own = g.ownSize(of: n, in: t)
+                    guard own >= 1_000_000 else { continue }
+                    out("  \(fmt(own).padding(toLength: 10, withPad: " ", startingAt: 0)) \(short(t, n))")
+                }
             }
         }
 
