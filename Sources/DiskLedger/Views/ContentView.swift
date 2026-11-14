@@ -9,25 +9,28 @@ struct ContentView: View {
             if model.phase == .needsPermission {
                 PermissionView()
             } else {
-                VStack(spacing: 0) {
-                    header
-                    Divider()
-                    HSplitView {
-                        SunburstView()
-                            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
-                        ItemTable()
-                            .frame(minWidth: 400, idealWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                NavigationSplitView {
+                    SidebarView()
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+                } detail: {
+                    VStack(spacing: 0) {
+                        if model.phase == .done {
+                            DetailHeader()
+                            Divider()
+                            ItemTable()
+                        } else {
+                            ScanningView()
+                        }
+                        Divider()
+                        FooterView()
                     }
-                    Divider()
-                    footer
                 }
             }
         }
-        .background(Color(nsColor: .windowBackgroundColor))
         .toolbar {
             ToolbarItem(placement: .navigation) {
-                Button { model.focusParent() } label: { Label("一つ上へ", systemImage: "chevron.left") }
-                    .disabled(model.focus == 0 || model.phase == .needsPermission)
+                Button { model.goUp() } label: { Label("一つ上へ", systemImage: "chevron.left") }
+                    .disabled(model.path.isEmpty)
             }
             ToolbarItem(placement: .primaryAction) {
                 Button { model.startScan() } label: { Label("読み直す", systemImage: "arrow.clockwise") }
@@ -36,38 +39,133 @@ struct ContentView: View {
             }
         }
     }
+}
 
-    /// いま見ている場所までの道筋。
-    private var header: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(model.breadcrumb.enumerated()), id: \.offset) { index, item in
-                if index > 0 {
-                    Image(systemName: "chevron.right")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+/// 左の一覧。システムデータの種類を容量の大きい順に並べる。
+struct SidebarView: View {
+    @Environment(LedgerModel.self) private var model
+
+    var body: some View {
+        @Bindable var model = model
+        List(selection: $model.sidebarSelection) {
+            if let classification = model.classification {
+                Section {
+                    ForEach(classification.groups) { group in
+                        CategoryRow(group: group)
+                            .tag(SidebarItem.category(group.id))
+                    }
+                } header: {
+                    HStack {
+                        Text("システムデータ")
+                        Spacer()
+                        Text(Format.bytes(classification.total)).monospacedDigit()
+                    }
                 }
-                Button(item.name) { model.focus(on: item.node) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(index == model.breadcrumb.count - 1 ? .primary : .secondary)
-                    .fontWeight(index == model.breadcrumb.count - 1 ? .semibold : .regular)
             }
-            Spacer()
-            Text(Format.bytes(model.focusSize))
-                .monospacedDigit()
-                .fontWeight(.semibold)
+            Section("ほかの見方") {
+                Label("フォルダで見る", systemImage: "folder")
+                    .tag(SidebarItem.allFolders)
+            }
         }
-        .lineLimit(1)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .listStyle(.sidebar)
     }
+}
 
-    private var footer: some View {
+struct CategoryRow: View {
+    var group: Classification.Group
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(group.rule.name).lineLimit(1)
+                Spacer(minLength: 8)
+                Text(Format.bytes(group.size))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            Text(group.rule.verdict.rawValue)
+                .font(.caption)
+                .foregroundStyle(Palette.color(for: group.rule.verdict))
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// 右側の見出し。種類の名前、容量、判断の目安と、その説明。
+struct DetailHeader: View {
+    @Environment(LedgerModel.self) private var model
+    @State private var showsInfo = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(model.title)
+                    .font(.title2.weight(.semibold))
+                if let group = model.selectedGroup {
+                    Text(group.rule.verdict.rawValue)
+                        .font(.callout)
+                        .foregroundStyle(Palette.color(for: group.rule.verdict))
+                    Button { showsInfo.toggle() } label: { Image(systemName: "info.circle") }
+                        .buttonStyle(.borderless)
+                        .help("この種類について")
+                        .popover(isPresented: $showsInfo, arrowEdge: .bottom) {
+                            Text(group.rule.summary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(width: 320)
+                                .padding(14)
+                        }
+                }
+                Spacer()
+                Text(Format.bytes(model.listSize))
+                    .font(.title3.weight(.semibold))
+                    .monospacedDigit()
+            }
+            if !model.path.isEmpty {
+                HStack(spacing: 4) {
+                    Button(model.title) { model.goBack(to: -1) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    ForEach(model.breadcrumb, id: \.index) { item in
+                        Image(systemName: "chevron.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Button(item.name) { model.goBack(to: item.index) }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(item.index == model.path.count - 1 ? .primary : .secondary)
+                    }
+                }
+                .lineLimit(1)
+                .font(.callout)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+    }
+}
+
+struct ScanningView: View {
+    @Environment(LedgerModel.self) private var model
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+            Text("ディスクを読んでいます")
+                .font(.headline)
+            Text("\(Format.count(model.progress.files)) 件・\(Format.bytes(model.progress.bytes))")
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct FooterView: View {
+    @Environment(LedgerModel.self) private var model
+
+    var body: some View {
         HStack(spacing: 12) {
             switch model.phase {
             case .scanning:
-                ProgressView().controlSize(.small)
-                Text("\(Format.count(model.progress.files)) 件・\(Format.bytes(model.progress.bytes))")
-                    .monospacedDigit()
                 Text(displayPath(model.progress.currentPath))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -79,11 +177,6 @@ struct ContentView: View {
                     Text("空き \(Format.bytes(volume.available))／\(Format.bytes(volume.capacity))")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
-                }
-                if model.unreadableCount > 0 {
-                    Label("読めなかったフォルダ \(Format.count(model.unreadableCount))", systemImage: "lock")
-                        .foregroundStyle(.secondary)
-                        .help("管理者だけが読める場所などです。これらの容量は「その他」に含まれます。")
                 }
             default:
                 EmptyView()

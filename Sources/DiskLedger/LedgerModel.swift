@@ -6,6 +6,8 @@ import Observation
 struct ItemRow: Identifiable, Equatable {
     var id: Int
     var name: String
+    /// どのアプリのものか、またはどこにあるか。
+    var detail: String?
     var size: UInt64
     var share: Double
     var flags: TreeStorage.Flags
@@ -24,6 +26,12 @@ struct ItemRow: Identifiable, Equatable {
     }
 }
 
+/// 左の一覧で選ぶもの。
+enum SidebarItem: Hashable {
+    case category(String)
+    case allFolders
+}
+
 @MainActor @Observable
 final class LedgerModel {
     enum Phase { case needsPermission, idle, scanning, done }
@@ -33,16 +41,17 @@ final class LedgerModel {
     private(set) var hasFullDiskAccess: Bool
     private(set) var progress = DiskScanner.Progress()
     private(set) var volume: VolumeInfo?
+    private(set) var classification: Classification?
 
-    private(set) var focus = 0
+    var sidebarSelection: SidebarItem? {
+        didSet { if oldValue != sidebarSelection { path = []; selection = nil; rebuild() } }
+    }
+    /// 種類の中で開いていったフォルダ。空なら種類の一覧そのもの。
+    private(set) var path: [Int] = []
     var selection: Int?
-    var hovered: Int?
 
-    private(set) var arcs: [SunburstArc] = []
     private(set) var rows: [ItemRow] = []
-    private(set) var breadcrumb: [(node: Int, name: String)] = []
-    private(set) var focusSize: UInt64 = 0
-    private(set) var unreadableCount = 0
+    private(set) var listSize: UInt64 = 0
 
     private var scanner: DiskScanner?
     private var ticker: Task<Void, Never>?
@@ -59,6 +68,29 @@ final class LedgerModel {
     var canScan: Bool { phase != .scanning && !needsPermission }
 
     var tree: Tree? { scanner?.tree }
+
+    var selectedGroup: Classification.Group? {
+        guard case .category(let id) = sidebarSelection else { return nil }
+        return classification?.groups.first { $0.id == id }
+    }
+
+    var title: String {
+        switch sidebarSelection {
+        case .category: selectedGroup?.rule.name ?? ""
+        case .allFolders: "フォルダで見る"
+        case nil: ""
+        }
+    }
+
+    /// 見出しの下に出す道筋。
+    var breadcrumb: [(index: Int, name: String)] {
+        guard let tree else { return [] }
+        return tree.read { t in
+            path.enumerated().map { (offset, node) in
+                (offset, offset == 0 && sidebarSelection != .allFolders ? shortPath(t, node) : t.name(node))
+            }
+        }
+    }
 
     func refreshPermission() {
         guard !launch.forcePermissionScreen else { return }
@@ -85,36 +117,49 @@ final class LedgerModel {
     func startScan() {
         guard canScan else { return }
         ticker?.cancel()
-        let options = launch.scanRoot.map { DiskScanner.Options(rootPath: $0, includeVolumeSummary: false) }
+        // 確認用の場所指定では、許可を求める窓を決して出さないよう、該当する場所を読まない。
+        let options = launch.scanRoot.map { DiskScanner.Options(rootPath: $0, includeVolumeSummary: false, skipPromptingPaths: true) }
             ?? DiskScanner.Options()
         let scanner = DiskScanner(options: options)
         self.scanner = scanner
-        focus = 0
+        classification = nil
+        rows = []
+        path = []
         selection = nil
-        hovered = nil
         phase = .scanning
         DispatchQueue.global(qos: .userInitiated).async { scanner.run() }
 
         ticker = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(500))
+                try? await Task.sleep(for: .milliseconds(400))
                 guard let self, self.scanner === scanner else { return }
                 self.progress = scanner.progress()
                 self.volume = scanner.volume
-                self.rebuild()
                 if self.progress.finished {
-                    self.finish()
+                    await self.finish(scanner)
                     return
                 }
             }
         }
     }
 
-    private func finish() {
+    private func finish(_ scanner: DiskScanner) async {
+        let tree = scanner.tree
+        let result = await Task.detached(priority: .userInitiated) { tree.read { Categories.classify($0) } }.value
+        guard self.scanner === scanner else { return }
+        classification = result
         phase = .done
-        if let name = launch.focusName, let tree {
-            let match = tree.read { t in t.children(0).first { t.name($0) == name } }
-            if let match { focus(on: match) }
+        if sidebarSelection == nil || selectedGroup == nil && sidebarSelection != .allFolders {
+            sidebarSelection = result.groups.first.map { .category($0.id) } ?? .allFolders
+        } else {
+            rebuild()
+        }
+        if let name = launch.focusName {
+            if let group = result.groups.first(where: { $0.id == name }) {
+                sidebarSelection = .category(group.id)
+            } else if let match = tree.read({ t in rows.first { t.name($0.id) == name }?.id }) {
+                open(match)
+            }
         }
         if let path = launch.snapshotPath {
             Task {
@@ -124,52 +169,83 @@ final class LedgerModel {
         }
     }
 
-    /// 図と一覧を今の木から作り直す。走査中は木が伸び続けるので定期的に呼ぶ。
+    /// 一覧を今の選択から作り直す。
     func rebuild() {
-        guard let tree else { return }
-        tree.read { t in
-            guard t.count > focus else { return }
-            focusSize = t.size[focus]
-            arcs = SunburstLayout.arcs(in: t, center: focus)
-            let total = Double(max(focusSize, 1))
-            rows = t.sortedChildren(focus).map { i in
-                ItemRow(id: i, name: t.name(i), size: t.size[i], share: Double(t.size[i]) / total,
-                        flags: t.flags[i], modified: t.modified[i])
+        guard let tree, phase == .done else { rows = []; return }
+        let top: [Int]
+        if let last = path.last {
+            top = tree.read { t in t.sortedChildren(last) }
+        } else {
+            switch sidebarSelection {
+            case .category: top = selectedGroup?.nodes ?? []
+            case .allFolders: top = tree.read { t in t.sortedChildren(0) }
+            case nil: top = []
             }
-            breadcrumb = t.ancestry(focus).map { ($0, t.name($0)) }
         }
-        unreadableCount = progress.unreadable
+        let atCategoryRoot = path.isEmpty && sidebarSelection != .allFolders
+        tree.read { t in
+            let total = path.last.map { t.size[$0] } ?? (selectedGroup?.size ?? top.reduce(UInt64(0)) { $0 + t.size[$1] })
+            listSize = path.isEmpty ? (selectedGroup?.size ?? total) : total
+            let denominator = Double(max(total, 1))
+            let group = atCategoryRoot ? selectedGroup : nil
+            rows = top.map { i in
+                let name = t.name(i)
+                let size = group?.ownSize(of: i, in: t) ?? t.size[i]
+                var detail: String?
+                if atCategoryRoot {
+                    detail = parentPath(t, i)
+                }
+                if t.isDirectory(i), i != 0, AppNames.perAppParents.contains(t.name(Int(t.parent[i]))) {
+                    detail = AppNames.name(forFolder: name).map { atCategoryRoot ? "\($0)・\(detail ?? "")" : $0 } ?? detail
+                }
+                return ItemRow(id: i, name: name, detail: detail, size: size, share: Double(size) / denominator,
+                               flags: t.flags[i], modified: t.modified[i])
+            }
+        }
     }
 
-    func focus(on node: Int) {
-        guard let tree, tree.read({ $0.isDirectory(node) && $0.childCount[node] > 0 }) else { return }
-        focus = node
+    /// フォルダなら中に入る。
+    func open(_ node: Int) {
+        guard let tree, tree.read({ $0.isDirectory(node) && $0.childCount[node] > 0 }) else {
+            selection = node
+            return
+        }
+        path.append(node)
         selection = nil
-        hovered = nil
         rebuild()
     }
 
-    func focusParent() {
-        guard focus != 0, let tree else { return }
-        let parent = tree.read { Int($0.parent[focus]) }
-        let previous = focus
-        focus(on: parent)
+    /// 道筋の index 番目まで戻る。-1 で種類の一覧へ。
+    func goBack(to index: Int) {
+        let previous = path.count > index + 1 ? path[index + 1] : nil
+        path = Array(path.prefix(index + 1))
+        rebuild()
         selection = previous
     }
 
-    /// 図や一覧で項目が選ばれたとき。フォルダなら中に入る。
-    func open(_ node: Int) {
-        guard let tree else { return }
-        if tree.read({ $0.isDirectory(node) && $0.childCount[node] > 0 }) {
-            focus(on: node)
-        } else {
-            selection = node
-        }
+    func goUp() {
+        guard !path.isEmpty else { return }
+        goBack(to: path.count - 2)
     }
 
     func name(of node: Int) -> String { tree?.read { $0.name(node) } ?? "" }
 
-    func size(of node: Int) -> UInt64 { tree?.read { $0.size[node] } ?? 0 }
+    /// /System/Volumes/Data/Users/<自分> を ~ に縮めた、親フォルダの場所。
+    private func parentPath(_ t: TreeStorage, _ node: Int) -> String? {
+        guard node != 0 else { return nil }
+        let parent = Int(t.parent[node])
+        return parent == 0 ? "/" : shortPath(t, parent)
+    }
+
+    private func shortPath(_ t: TreeStorage, _ node: Int) -> String {
+        guard var p = t.path(node) else { return t.name(node) }
+        let data = VolumeInfo.dataVolumePath
+        if p.hasPrefix(data + "/") { p.removeFirst(data.count) }
+        let home = NSHomeDirectory()
+        if p == home { return "~" }
+        if p.hasPrefix(home + "/") { p = "~" + p.dropFirst(home.count) }
+        return p
+    }
 
     /// Finder で開けるパス。データボリュームの中のパスは、/Users のような普段の形に直す。
     func displayPath(of node: Int) -> String? {

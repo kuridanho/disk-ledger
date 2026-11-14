@@ -57,38 +57,81 @@ import Testing
     }
 }
 
-@Suite struct LayoutTests {
-    /// 根 100 の下に 60、30、0.05、残り 9.95 を置いた木を手で作る。
-    func sampleTree() -> TreeStorage {
+@Suite struct ClassificationTests {
+    /// パスと容量の組から木を作る。途中のフォルダは自動で作る。
+    func makeTree(_ files: [(String, UInt64)], extraRoot: [(String, UInt64)] = []) -> TreeStorage {
+        final class Dir { var dirs: [String: Dir] = [:]; var files: [(String, UInt64)] = [] }
+        let top = Dir()
+        for (path, size) in files {
+            var d = top
+            let parts = path.split(separator: "/").map(String.init)
+            for part in parts.dropLast() {
+                if d.dirs[part] == nil { d.dirs[part] = Dir() }
+                d = d.dirs[part]!
+            }
+            d.files.append((parts.last!, size))
+        }
         var t = TreeStorage()
-        t.appendNode(parent: 0, name: "root", size: 0, flags: .directory, modified: 0)
-        t.firstChild[0] = 1
-        t.childCount[0] = 4
-        t.appendNode(parent: 0, name: "big", size: 0, flags: .directory, modified: 0)
-        t.appendNode(parent: 0, name: "mid", size: 30, flags: [], modified: 0)
-        t.appendNode(parent: 0, name: "tiny", size: 0, flags: [], modified: 0)
-        t.appendNode(parent: 0, name: "rest", size: 9, flags: [], modified: 0)
-        t.addSize(39, from: 0)
-        t.firstChild[1] = 5
-        t.childCount[1] = 2
-        t.appendNode(parent: 1, name: "x", size: 60, flags: [], modified: 0)
-        t.appendNode(parent: 1, name: "y", size: 1, flags: [], modified: 0)
-        t.addSize(61, from: 1)
+        t.appendNode(parent: 0, name: "Macintosh HD", size: 0, flags: .directory, modified: 0)
+        var queue: [(Int, Dir)] = [(0, top)]
+        while !queue.isEmpty {
+            let (index, dir) = queue.removeFirst()
+            let names = dir.dirs.keys.sorted()
+            t.firstChild[index] = UInt32(t.count)
+            t.childCount[index] = UInt32(names.count + dir.files.count + (index == 0 ? extraRoot.count : 0))
+            for name in names {
+                queue.append((t.count, dir.dirs[name]!))
+                t.appendNode(parent: UInt32(index), name: name, size: 0, flags: .directory, modified: 0)
+            }
+            for (name, size) in dir.files {
+                t.appendNode(parent: UInt32(index), name: name, size: size, flags: [], modified: 0)
+                t.addSize(size, from: t.count - 1 == 0 ? 0 : index)
+            }
+            if index == 0 {
+                for (name, size) in extraRoot {
+                    t.appendNode(parent: 0, name: name, size: size, flags: .synthetic, modified: 0)
+                    t.addSize(size, from: 0)
+                }
+            }
+        }
         return t
     }
 
-    @Test func arcsFollowSizesAndGroupSmallItems() {
-        let t = sampleTree()
-        #expect(t.size[0] == 100)
-        let arcs = SunburstLayout.arcs(in: t, center: 0, minAngle: 0.1)
-        let depth1 = arcs.filter { $0.depth == 1 }
-        #expect(depth1.map(\.node) == [1, 2, 4])
-        #expect(abs(depth1[0].end - 2 * .pi * 0.61) < 1e-9)
-        // y は 1/100 周で minAngle に届かず、まとめても届かないので描かない。
-        let depth2 = arcs.filter { $0.depth == 2 }
-        #expect(depth2.map(\.node) == [5])
-        #expect(depth2[0].branch == depth1[0].branch)
-        #expect(t.ancestry(5) == [0, 1, 5])
+    @Test func groupsSystemDataByKind() throws {
+        let t = makeTree([
+            ("Users/a/Library/Caches/com.example/x", 100),
+            ("Users/a/Library/Application Support/Foo/data.db", 50),
+            ("Users/a/Library/Application Support/Foo/Code Cache/js", 30),
+            ("Users/a/Library/Mail/V10/m", 999),
+            ("Users/a/Library/Weird/thing", 7),
+            ("Users/a/Documents/report.pdf", 500),
+            ("Users/a/.npm/_cacache/x", 20),
+            ("Applications/App.app/bin", 400),
+            ("private/var/folders/zz/abc/T/tmp", 40),
+            ("System/Library/AssetsV2/model", 60),
+        ], extraRoot: [("macOS 本体", 1000), ("その他", 80)])
+        let c = Categories.classify(t)
+        let sizes = Dictionary(uniqueKeysWithValues: c.groups.map { ($0.id, $0.size) })
+        #expect(sizes["caches"] == 130)       // Code Cache はアプリの補助データから外してキャッシュに入れる
+        #expect(sizes["app-data"] == 50)
+        #expect(sizes["dev-cache"] == 20)
+        #expect(sizes["temporary"] == 40)
+        #expect(sizes["macos-data"] == 60)
+        #expect(sizes[Categories.snapshotsID] == 80)
+        #expect(sizes[Categories.unclassifiedID] == 7)
+        // メール、書類、アプリ、macOS 本体はシステムデータに数えない。
+        #expect(c.total == 130 + 50 + 20 + 40 + 60 + 80 + 7)
+        let unclassified = try #require(c.groups.first { $0.id == Categories.unclassifiedID })
+        #expect(unclassified.nodes.map(t.name) == ["Weird"])
+    }
+
+    @Test func globMatching() {
+        #expect(Glob.full(["Users", "*", "**", "Cache"][...], ["Users", "a", "x", "y", "Cache"][...]))
+        #expect(Glob.full(["Users", "*", "**", "Cache"][...], ["Users", "a", "Cache"][...]))
+        #expect(!Glob.full(["Users", "*", "Library"][...], ["Users", "a"][...]))
+        #expect(Glob.canExtend(["Users", "*", "Library"][...], ["Users", "a"][...]))
+        #expect(!Glob.canExtend(["Users", "*", "Library"][...], ["Users", "a", "Library"][...]))
+        #expect(Glob.component("*.com.docker", "ABC.com.docker"))
     }
 }
 

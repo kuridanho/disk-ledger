@@ -10,14 +10,23 @@ struct ItemTable: View {
         Table(model.rows, selection: $model.selection) {
             TableColumn("名前") { row in
                 Label {
-                    Text(row.name).lineLimit(1).truncationMode(.middle)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(row.name).lineLimit(1).truncationMode(.middle)
+                        if let detail = row.detail {
+                            Text(detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    }
                 } icon: {
                     Image(systemName: icon(for: row))
                         .foregroundStyle(row.isDirectory ? Palette.accent : .secondary)
                 }
                 .help(row.name)
             }
-            .width(min: 140, ideal: 210)
+            .width(min: 160, ideal: 260)
             TableColumn("サイズ") { row in
                 Group {
                     if let status = row.status, row.size == 0 {
