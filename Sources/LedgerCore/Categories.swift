@@ -2,13 +2,13 @@ import Foundation
 
 /// 消してよいかを判断するための目安。
 public enum Verdict: String, Sendable, CaseIterable {
-    case regenerable = "消しても作り直される"
-    case redownload = "再ダウンロードが必要"
-    case reinstall = "入れ直せる"
-    case appData = "アプリのデータ"
-    case system = "macOS が管理"
-    case irreplaceable = "消すと戻せない"
-    case unknown = "中身を見て判断"
+    case regenerable = "再生成可能"
+    case redownload = "再取得可能"
+    case reinstall = "再導入可能"
+    case appData = "アプリ固有"
+    case system = "システム管理"
+    case irreplaceable = "復元不可"
+    case unknown = "要確認"
 }
 
 /// システム設定で「システムデータ」にまとめられるものを、場所の決まりで種類に分ける。
@@ -38,84 +38,84 @@ public enum Categories {
 
     public static let rules: [CategoryRule] = [
         .init("caches", "キャッシュ", .regenerable,
-              "アプリや macOS が、次に速く動くために取っておいたデータです。消しても必要に応じて作り直されますが、直後はアプリの起動や表示が遅くなることがあります。",
+              "アプリや macOS が高速化のために保持するデータ。削除しても必要時に再生成されるが、直後は起動や表示が遅くなる場合がある。",
               ["~/Library/Caches", "Library/Caches", "System/Library/Caches",
                "~/Library/Containers/*/Data/Library/Caches",
                "~/Library/Application Support/**/Cache", "~/Library/Application Support/**/Caches",
                "~/Library/Application Support/**/Code Cache", "~/Library/Application Support/**/GPUCache",
                "~/Library/Application Support/**/CacheStorage", "~/Library/Application Support/**/ShaderCache"]),
-        .init("logs", "ログと診断の記録", .regenerable,
-              "アプリや macOS の動作の記録です。不具合を調べるとき以外は使いません。macOS が古いものから整理します。",
+        .init("logs", "ログ・診断記録", .regenerable,
+              "アプリや macOS の動作記録。不具合調査以外では不要で、古いものから macOS が自動整理する。",
               ["~/Library/Logs", "Library/Logs", "private/var/log", "private/var/logs",
                "private/var/db/diagnostics", "private/var/db/uuidtext", "cores"]),
         .init("temporary", "一時ファイル", .system,
-              "アプリが作業中に使うファイルです。macOS が再起動のときや定期的に片づけます。手で消すと動作中のアプリが困ることがあります。",
+              "アプリが作業中に使用するファイル。再起動時や定期的に macOS が整理する。手動削除は動作中のアプリに支障を来す場合がある。",
               ["private/var/folders", "private/tmp", "private/var/tmp"]),
-        .init("vm", "仮想メモリとスリープイメージ", .system,
-              "メモリが足りないときやスリープのときに macOS が使う領域です。",
+        .init("vm", "仮想メモリ・スリープイメージ", .system,
+              "メモリ不足時とスリープ時に macOS が使用する領域。",
               ["private/var/vm"]),
-        .init("macos-data", "macOS の追加データ", .system,
-              "Apple Intelligence のモデル、辞書、音声、フォントなど、macOS が後から取り込んだデータです。macOS が管理しており、手では消せません。",
+        .init("macos-data", "macOS 追加データ", .system,
+              "Apple Intelligence のモデル、辞書、音声、フォントなど、macOS が追加取得したデータ。macOS の管理下にあり、手動削除は不可。",
               ["System"]),
-        .init("updates", "macOS のアップデート", .system,
-              "ダウンロード済みで、まだ入れていないアップデートです。入れ終わると消えます。",
+        .init("updates", "macOS 更新ファイル", .system,
+              "取得済みで未適用の macOS 更新ファイル。適用後に自動削除される。",
               ["Library/Updates"]),
-        .init("spotlight", "検索の索引", .regenerable,
-              "Spotlight の検索のための索引です。消しても作り直されますが、その間は検索が不完全になります。",
+        .init("spotlight", "検索索引", .regenerable,
+              "Spotlight 検索用の索引。削除しても再生成されるが、再構築中は検索結果が不完全になる。",
               [".Spotlight-V100", "private/var/db/Spotlight-V100", "~/Library/Metadata/CoreSpotlight"]),
-        .init("xcode-build", "Xcode のビルドと端末のサポート", .regenerable,
-              "Xcode がビルドの途中結果と、つないだ iPhone などのための記号情報を置く場所です。消しても次のビルドや接続で作り直されます。",
+        .init("xcode-build", "Xcode 中間生成物", .regenerable,
+              "Xcode のビルド中間生成物と、接続端末用のシンボル情報。削除しても次回のビルドや接続時に再生成される。",
               ["~/Library/Developer/Xcode/DerivedData", "~/Library/Developer/Xcode/iOS DeviceSupport",
                "~/Library/Developer/Xcode/macOS DeviceSupport", "~/Library/Developer/Xcode/watchOS DeviceSupport",
                "~/Library/Developer/Xcode/tvOS DeviceSupport", "~/Library/Developer/Xcode/visionOS DeviceSupport"]),
         .init("simulators", "シミュレータ", .redownload,
-              "iOS などのシミュレータの本体と、その中の端末のデータです。使わない OS の版は Xcode の設定から消せます。",
+              "iOS などのシミュレータ本体と端末データ。不要な OS 版は Xcode の設定から削除できる。",
               ["~/Library/Developer/CoreSimulator", "Library/Developer/CoreSimulator",
                "System/Library/AssetsV2/com_apple_MobileAsset_iOSSimulatorRuntime",
                "System/Library/AssetsV2/com_apple_MobileAsset_watchOSSimulatorRuntime",
                "System/Library/AssetsV2/com_apple_MobileAsset_tvOSSimulatorRuntime",
                "System/Library/AssetsV2/com_apple_MobileAsset_xrOSSimulatorRuntime",
                "System/Library/AssetsV2/com_apple_MobileAsset_visionOSSimulatorRuntime"]),
-        .init("dev-cache", "開発ツールのキャッシュ", .regenerable,
-              "npm、pip、Gradle、Cargo などがダウンロードした部品の控えです。消しても次に必要になったときに取り直されます。",
+        .init("dev-cache", "開発ツールキャッシュ", .regenerable,
+              "npm、pip、Gradle、Cargo などが取得した部品の複製。削除しても次回必要時に再取得される。",
               ["~/.npm", "~/.cache", "~/.gradle", "~/.m2", "~/.pnpm-store", "~/Library/pnpm", "~/.yarn",
                "~/.cargo/registry", "~/.bun/install/cache", "~/Library/org.swift.swiftpm", "~/.swiftpm",
                "~/go/pkg", "~/.go/pkg"]),
         .init("dev-tools", "開発ツール", .reinstall,
-              "Homebrew、Command Line Tools、言語の処理系など、入れた開発ツールの本体です。消すとそれを使うものが動かなくなります。",
+              "Homebrew、Command Line Tools、言語処理系など、導入済み開発ツールの本体。削除すると依存する環境が動作しなくなる。",
               ["Library/Developer", "~/Library/Developer", "opt", "usr/local",
                "~/.rustup", "~/.cargo", "~/.pyenv", "~/.nvm", "~/.volta", "~/.bun", "~/.deno", "~/.local",
                "~/go", "~/.go", "~/.gem", "~/.rbenv", "~/.sdkman", "~/.zprezto", "~/.oh-my-zsh",
                "System/Library/AssetsV2/com_apple_MobileAsset_AppleDeveloperDocumentation"]),
-        .init("ai-models", "ローカル AI のモデル", .redownload,
-              "LM Studio、Ollama、Hugging Face などで手元に落としたモデルです。消すと使うときにまたダウンロードが必要です。",
+        .init("ai-models", "ローカル AI モデル", .redownload,
+              "LM Studio、Ollama、Hugging Face などで取得したモデル。削除後の使用には再取得が必要。",
               ["~/.lmstudio", "~/.ollama", "~/.cache/huggingface", "~/.cache/lm-studio"]),
-        .init("vms", "仮想マシンのディスク", .appData,
-              "Docker や Claude などが使う仮想マシンのディスクです。中の環境ごと消えるので、使っていないものだけを対象にします。",
+        .init("vms", "仮想マシンディスク", .appData,
+              "Docker や Claude などが使用する仮想マシンのディスク。内部環境ごと失われるため、未使用のものに限り削除対象とする。",
               ["~/Library/Containers/com.docker.docker", "~/Library/Group Containers/*.com.docker",
                "~/Library/Application Support/Claude/vm_bundles", "~/Library/Containers/com.utmapp.UTM",
                "~/.colima", "~/.orbstack"]),
-        .init("device-backups", "iPhone と iPad のバックアップ", .irreplaceable,
-              "Finder で取った iPhone などのバックアップです。消すとその時点の状態には戻せません。古い端末のものは、Finder の端末の画面から消せます。",
+        .init("device-backups", "iOS 端末バックアップ", .irreplaceable,
+              "Finder で作成した iPhone などのバックアップ。削除すると当該時点への復元は不可。旧端末分は Finder の端末画面から削除できる。",
               ["~/Library/Application Support/MobileSync/Backup"]),
-        .init("audio", "音源とプラグイン", .redownload,
-              "音楽アプリの音源やプラグインです。多くは配布元のアプリからまた入れられます。",
+        .init("audio", "音源・プラグイン", .redownload,
+              "音楽アプリの音源とプラグイン。大半は配布元のアプリから再導入できる。",
               ["~/Library/Audio", "Library/Audio", "~/Library/Application Support/Muse Hub",
                "~/Library/Application Support/MuseSampler", "Library/Application Support/Muse Hub",
                "~/Library/Application Support/Native Instruments", "Library/Application Support/Native Instruments",
                "~/Library/Application Support/Spitfire Audio", "Library/Application Support/Spitfire Audio",
                "~/Library/Application Support/Logic", "Library/Application Support/Logic",
                "~/Library/Application Support/GarageBand", "Library/Application Support/GarageBand"]),
-        .init("macos-internal", "macOS の内部データ", .system,
-              "macOS が学習、同期、セキュリティ、更新の管理のために持っているデータです。キーチェーンもここに入ります。macOS が管理しており、手で消すと不具合の元になります。",
+        .init("macos-internal", "macOS 内部データ", .system,
+              "学習、同期、セキュリティ、更新管理のために macOS が保持するデータ。キーチェーンを含む。macOS の管理下にあり、手動削除は不具合の原因となる。",
               ["private", ".fseventsd", ".DocumentRevisions-V100", ".PreviousSystemInformation", ".MobileBackups",
                "~/Library/Biome", "~/Library/DuetExpertCenter", "~/Library/IntelligencePlatform", "~/Library/Trial",
                "~/Library/PersonalizationPortrait", "~/Library/Suggestions", "~/Library/IdentityServices",
                "~/Library/Keychains", "~/Library/Daemon Containers", "~/Library/Metadata", "~/Library/Assistant",
                "~/Library/Accounts", "~/Library/Sharing", "~/Library/StatusKit", "~/Library/AppleMediaServices",
                "Library/Apple", "Library/Keychains", "Library/SystemMigration", "Library/Trial"]),
-        .init("app-data", "アプリの補助データ", .appData,
-              "アプリが設定や作業中のデータを置く場所です。アプリを消しても残ることがあり、使わなくなったアプリのものは消して構いません。行を開くと、どのアプリのものかが分かります。",
+        .init("app-data", "アプリ補助データ", .appData,
+              "アプリの設定と作業データ。アプリ削除後も残存する場合があり、使用しなくなったアプリの分は削除して差し支えない。行を開くと所属アプリを確認できる。",
               ["~/Library/Application Support", "~/Library/Containers", "~/Library/Group Containers",
                "Library/Application Support", "~/Library/WebKit", "~/Library/HTTPStorages",
                "~/Library/Preferences", "~/Library/Saved Application State", "Library/Preferences",
@@ -124,13 +124,13 @@ public enum Categories {
     ]
 
     public static let snapshotsRule = CategoryRule(
-        snapshotsID, "スナップショットと読めない場所", .system,
-        "ボリュームの使用量のうち、ファイルとして数えられなかった分です。Time Machine のローカルスナップショット、管理者だけが読める場所、消したのにまだスナップショットが持っているファイルなどが含まれます。スナップショットは空きが減ると macOS が自動で消します。",
+        snapshotsID, "スナップショット・読取不可領域", .system,
+        "ボリューム使用量のうち、ファイルとして計上できなかった分。Time Machine のローカルスナップショット、管理者専用領域、スナップショットが保持する削除済みファイルなどを含む。スナップショットは空き容量の不足時に macOS が自動削除する。",
         [])
 
     public static let unclassifiedRule = CategoryRule(
-        unclassifiedID, "分類できなかったデータ", .unknown,
-        "システムデータに含まれるものの、どの種類にも当てはまらなかった場所です。中を開いて、何のアプリのものかを確かめてください。",
+        unclassifiedID, "未分類", .unknown,
+        "システムデータに含まれるが、いずれの種類にも該当しなかった場所。行を開いて所属アプリを確認する。",
         [])
 
     /// システムデータとして数える範囲。ここに入らないもの（アプリ、書類、写真など）は数えない。

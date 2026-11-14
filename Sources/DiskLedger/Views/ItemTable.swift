@@ -38,7 +38,7 @@ struct ItemTable: View {
                 .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .width(min: 72, ideal: 80, max: 110)
-            TableColumn("割合") { row in
+            TableColumn("比率") { row in
                 ShareBar(share: row.share)
             }
             .width(min: 90, ideal: 110, max: 150)
@@ -49,6 +49,7 @@ struct ItemTable: View {
             }
             .width(min: 76, ideal: 84, max: 100)
         }
+        .alternatingRowBackgrounds(.disabled)
         .contextMenu(forSelectionType: Int.self) { ids in
             if let id = ids.first {
                 Button("Finder に表示") { model.revealInFinder(id) }

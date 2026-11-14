@@ -4,9 +4,9 @@ import Foundation
 /// Apple は振り分けの決まりを公開していないので、2026-11-14 に実機の数値と突き合わせて推測した。
 public enum SettingsBucket: String, Sendable, CaseIterable {
     /// 入っているアプリの補助データ。設定では「アプリケーション」に入る。
-    case applications = "アプリケーション"
+    case applications = "アプリ計上"
     /// 手元に落としたローカル AI のモデル。設定では「書類」に入る。
-    case documents = "書類"
+    case documents = "書類計上"
 }
 
 /// 入っているアプリの名前とバンドル ID。アプリの補助データがどのアプリのものかを決めるのに使う。

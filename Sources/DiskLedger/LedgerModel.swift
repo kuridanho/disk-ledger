@@ -17,11 +17,11 @@ struct ItemRow: Identifiable, Equatable {
 
     /// 容量の代わりに出す状態。読めなかったものなど、容量が分からない項目に使う。
     var status: String? {
-        if flags.contains(.needsPermission) { return "許可が必要" }
-        if flags.contains(.unreadable) { return "読めません" }
-        if flags.contains(.mountPoint) { return "別のボリューム" }
-        if flags.contains(.dataless) { return "iCloud のみ" }
-        if flags.contains(.hardLinkDuplicate) { return "リンク" }
+        if flags.contains(.needsPermission) { return "要許可" }
+        if flags.contains(.unreadable) { return "読取不可" }
+        if flags.contains(.mountPoint) { return "別ボリューム" }
+        if flags.contains(.dataless) { return "未ダウンロード" }
+        if flags.contains(.hardLinkDuplicate) { return "ハードリンク" }
         return nil
     }
 }
@@ -77,7 +77,7 @@ final class LedgerModel {
     var title: String {
         switch sidebarSelection {
         case .category: selectedGroup?.rule.name ?? ""
-        case .allFolders: "フォルダで見る"
+        case .allFolders: "フォルダ階層"
         case nil: ""
         }
     }
@@ -219,7 +219,7 @@ final class LedgerModel {
                     detail = AppNames.name(forFolder: name).map { atCategoryRoot ? "\($0)・\(detail ?? "")" : $0 } ?? detail
                 }
                 if let bucket = classification?.settingsBucket(of: i, in: t) {
-                    detail = [detail, "設定では\(bucket.rawValue)"].compactMap { $0 }.joined(separator: "・")
+                    detail = [detail, bucket.rawValue].compactMap { $0 }.joined(separator: "・")
                 }
                 return ItemRow(id: i, name: name, detail: detail, size: size, share: Double(size) / denominator,
                                flags: t.flags[i], modified: t.modified[i])

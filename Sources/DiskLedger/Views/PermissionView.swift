@@ -10,24 +10,24 @@ struct PermissionView: View {
                 .font(.system(size: 44, weight: .light))
                 .foregroundStyle(Palette.accent)
             VStack(spacing: 8) {
-                Text("フルディスクアクセスを許可してください")
+                Text("フルディスクアクセスが必要です")
                     .font(.title2.weight(.semibold))
-                Text("ディスク全体の容量を正しく数えるには、すべてのフォルダを読む許可が要ります。読むのはファイルの名前と大きさだけで、中身は開きません。")
+                Text("ディスク全体を正確に集計するため、全フォルダの読取許可が必要です。読み取るのはファイル名と容量のみで、内容は開きません。")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 440)
             }
             VStack(alignment: .leading, spacing: 10) {
                 step(1, "システム設定の「フルディスクアクセス」を開く")
-                step(2, "Disk Ledger をオンにする。一覧にない場合は「＋」から追加する")
-                step(3, "Disk Ledger を開き直す")
+                step(2, "Disk Ledger を有効化する。一覧になければ「＋」で追加する")
+                step(3, "Disk Ledger を再起動する")
             }
             .padding(16)
             .background(.background.secondary, in: RoundedRectangle(cornerRadius: 8))
             HStack(spacing: 12) {
                 Button("システム設定を開く") { model.openPrivacySettings() }
                     .keyboardShortcut(.defaultAction)
-                Button("開き直す") { model.relaunch() }
+                Button("再起動") { model.relaunch() }
             }
             .controlSize(.large)
         }

@@ -20,7 +20,7 @@ struct DiskLedgerApp: App {
         .defaultSize(width: 1120, height: 740)
         .commands {
             CommandGroup(after: .newItem) {
-                Button("読み直す") { model.startScan() }
+                Button("再走査") { model.startScan() }
                     .keyboardShortcut("r")
                     .disabled(!model.canScan)
             }
