@@ -166,11 +166,15 @@ public struct Classification: Sendable {
     }
 
     public var groups: [Group]
+    /// 空きが必要になれば macOS が消せる量。システム設定はこれをシステムデータに含めない。
+    public var purgeable: UInt64 = 0
     public var total: UInt64 { groups.reduce(0) { $0 + $1.size } }
+    /// システム設定の数え方に近づけた合計。パージ可能な分を除く。
+    public var totalExcludingPurgeable: UInt64 { total - min(total, purgeable) }
 }
 
 extension Categories {
-    public static func classify(_ t: TreeStorage) -> Classification {
+    public static func classify(_ t: TreeStorage, purgeable: UInt64 = 0) -> Classification {
         let allRules = rules + [snapshotsRule, unclassifiedRule]
         var nodes = Array(repeating: [Int](), count: allRules.count)
         var sizes = Array(repeating: Int64(0), count: allRules.count)
@@ -234,7 +238,7 @@ extension Categories {
             group.nodes = nodes[i].sorted { group.ownSize(of: $0, in: t) > group.ownSize(of: $1, in: t) }
             return group
         }
-        return Classification(groups: groups.sorted { $0.size > $1.size })
+        return Classification(groups: groups.sorted { $0.size > $1.size }, purgeable: purgeable)
     }
 }
 

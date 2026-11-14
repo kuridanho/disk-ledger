@@ -144,6 +144,8 @@ import Testing
         #expect(sizes[Categories.unclassifiedID] == 7)
         // メール、書類、アプリ、macOS 本体はシステムデータに数えない。
         #expect(c.total == 130 + 53 + 20 + 40 + 60 + 80 + 7)
+        // パージ可能な分はシステム設定と同じく合計から外せる。
+        #expect(Categories.classify(t, purgeable: 100).totalExcludingPurgeable == c.total - 100)
         let unclassified = try #require(c.groups.first { $0.id == Categories.unclassifiedID })
         #expect(unclassified.nodes.map(t.name) == ["share"])
     }

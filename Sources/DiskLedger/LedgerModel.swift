@@ -145,7 +145,8 @@ final class LedgerModel {
 
     private func finish(_ scanner: DiskScanner) async {
         let tree = scanner.tree
-        let result = await Task.detached(priority: .userInitiated) { tree.read { Categories.classify($0) } }.value
+        let purgeable = scanner.volume?.purgeable ?? 0
+        let result = await Task.detached(priority: .userInitiated) { tree.read { Categories.classify($0, purgeable: purgeable) } }.value
         guard self.scanner === scanner else { return }
         classification = result
         phase = .done

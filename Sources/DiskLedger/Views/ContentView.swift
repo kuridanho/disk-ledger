@@ -55,10 +55,18 @@ struct SidebarView: View {
                             .tag(SidebarItem.category(group.id))
                     }
                 } header: {
-                    HStack {
-                        Text("システムデータ")
-                        Spacer()
-                        Text(Format.bytes(classification.total)).monospacedDigit()
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack {
+                            Text("システムデータ")
+                            Spacer()
+                            Text(Format.bytes(classification.totalExcludingPurgeable)).monospacedDigit()
+                        }
+                        if classification.purgeable > 0 {
+                            // システム設定の数値と比べられるよう、合計はパージ可能な分を除いて出す。
+                            Text("ほかに macOS が自動で消せる \(Format.bytes(classification.purgeable))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }

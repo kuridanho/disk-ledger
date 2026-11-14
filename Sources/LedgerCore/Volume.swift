@@ -11,18 +11,25 @@ public struct VolumeInfo: Sendable {
     public var dataUsed: UInt64
     /// システムボリュームが使っている量。
     public var systemUsed: UInt64
+    /// 空きが必要になれば macOS が消せる量（ローカルスナップショット、iCloud の控えなど）。
+    /// システム設定の使用済みはこれを除いた量で、空きはこれを含めた量になる。
+    public var purgeable: UInt64 = 0
 
     public static let dataVolumePath = "/System/Volumes/Data"
 
     public static func current() -> VolumeInfo {
         let root = URL(fileURLWithPath: "/")
-        let values = try? root.resourceValues(forKeys: [.volumeLocalizedNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey])
+        let values = try? root.resourceValues(forKeys: [.volumeLocalizedNameKey, .volumeTotalCapacityKey, .volumeAvailableCapacityKey,
+                                                         .volumeAvailableCapacityForImportantUsageKey])
+        let available = UInt64(values?.volumeAvailableCapacity ?? 0)
+        let important = UInt64(max(0, values?.volumeAvailableCapacityForImportantUsage ?? 0))
         return VolumeInfo(
             name: values?.volumeLocalizedName ?? "Macintosh HD",
             capacity: UInt64(values?.volumeTotalCapacity ?? 0),
-            available: UInt64(values?.volumeAvailableCapacity ?? 0),
+            available: available,
             dataUsed: used(at: dataVolumePath),
-            systemUsed: used(at: "/")
+            systemUsed: used(at: "/"),
+            purgeable: important > available ? important - available : 0
         )
     }
 

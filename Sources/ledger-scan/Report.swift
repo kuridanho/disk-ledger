@@ -20,8 +20,8 @@ enum ClassificationReport {
         out("木の合計 \(fmt(t.size[0]))  ノード \(t.count)")
         for c in t.children(0) where t.flags[c].contains(.synthetic) { out("  \(t.name(c)) \(fmt(t.size[c]))") }
 
-        let c = Categories.classify(t)
-        out("\n== システムデータの合計 \(fmt(c.total))")
+        let c = Categories.classify(t, purgeable: volume?.purgeable ?? 0)
+        out("\n== システムデータの合計 \(fmt(c.total))  パージ可能 \(fmt(c.purgeable)) を除くと \(fmt(c.totalExcludingPurgeable))")
         for g in c.groups {
             out("\n## \(g.rule.name)  \(fmt(g.size))  (\(g.nodes.count) 箇所)")
             for n in g.nodes.prefix(g.rule.id == Categories.unclassifiedID ? 40 : 10) {
