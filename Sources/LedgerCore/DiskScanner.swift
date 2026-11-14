@@ -33,7 +33,7 @@ public final class DiskScanner: @unchecked Sendable {
         }
     }
 
-    public let tree = Tree()
+    public let tree: Tree
     public let options: Options
     public private(set) var volume: VolumeInfo?
 
@@ -57,6 +57,16 @@ public final class DiskScanner: @unchecked Sendable {
 
     public init(options: Options = Options()) {
         self.options = options
+        self.tree = Tree()
+    }
+
+    /// 書き出した走査結果を、読み終えた状態として持つ。確認用。
+    public init(archive url: URL) throws {
+        let (storage, volume) = try TreeArchive.read(from: url)
+        self.options = Options(rootPath: storage.rootPath, skipPromptingPaths: true)
+        self.tree = Tree(storage: storage)
+        self.volume = volume
+        stats.finished = true
     }
 
     public func progress() -> Progress {

@@ -43,6 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// --snapshot <PNG>    読み終えたらウィンドウを PNG に描き出して終了する
 /// --focus <名前>      読み終えたら根の直下のその項目を中心にする
 /// --permission-screen 許可の画面を描き出すために、許可がない状態として扱う
+/// --load <ファイル>   ディスクを読まず、--dump で書き出した結果を見せる
 /// --dump <ファイル>   読み終えたら走査結果をファイルに書き出して終了する（ledger-scan --load で読める）
 struct LaunchOptions {
     var scanRoot: String?
@@ -50,6 +51,7 @@ struct LaunchOptions {
     var focusName: String?
     var forcePermissionScreen = false
     var dumpPath: String?
+    var loadPath: String?
 
     static var current: LaunchOptions {
         let args = CommandLine.arguments
@@ -59,6 +61,6 @@ struct LaunchOptions {
         }
         return LaunchOptions(scanRoot: value("--scan-root"), snapshotPath: value("--snapshot"),
                              focusName: value("--focus"), forcePermissionScreen: args.contains("--permission-screen"),
-                             dumpPath: value("--dump"))
+                             dumpPath: value("--dump"), loadPath: value("--load"))
     }
 }

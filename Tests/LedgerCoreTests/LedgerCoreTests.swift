@@ -150,6 +150,29 @@ import Testing
         #expect(unclassified.nodes.map(t.name) == ["share"])
     }
 
+    /// システム設定がアプリケーションや書類に数える分を、種類ごとに分けて数える。
+    @Test func separatesWhatSettingsCountsElsewhere() {
+        let t = makeTree([
+            ("Users/a/Library/Application Support/Foo Studio/data.db", 50),
+            ("Users/a/Library/Application Support/Foo Studio/Code Cache/js", 30),
+            ("Users/a/Library/Application Support/Gone/data.db", 5),
+            ("Users/a/Library/Containers/com.example.foo/Data/Library/Caches/x", 8),
+            ("Users/a/Library/Containers/com.example.foo/Data/prefs", 2),
+            ("Users/a/.lmstudio/models/m.gguf", 400),
+            ("Users/a/.lmstudio/bin/x", 6),
+        ])
+        let apps = InstalledApps(names: ["Foo Studio"], bundleIDs: ["com.example.foo"])
+        let c = Categories.classify(t, purgeable: 0, apps: apps)
+        func group(_ id: String) -> Classification.Group? { c.groups.first { $0.id == id } }
+        #expect(group("app-data")?.size == 57)
+        #expect(group("app-data")?.elsewhere[.applications] == 52) // 入っていない Gone の 5 は残る
+        #expect(group("caches")?.elsewhere[.applications] == 38)
+        #expect(group("ai-models")?.elsewhere[.documents] == 400)
+        #expect(c.settingsTotal == c.total - 52 - 38 - 400)
+        let cache = t.children(0).first.map { _ in (0 ..< t.count).first { t.name($0) == "Code Cache" }! }!
+        #expect(c.settingsBucket(of: cache, in: t) == .applications)
+    }
+
     @Test func globMatching() {
         #expect(Glob.full(["Users", "*", "**", "Cache"][...], ["Users", "a", "x", "y", "Cache"][...]))
         #expect(Glob.full(["Users", "*", "**", "Cache"][...], ["Users", "a", "Cache"][...]))

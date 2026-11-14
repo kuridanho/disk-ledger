@@ -20,10 +20,18 @@ enum ClassificationReport {
         out("木の合計 \(fmt(t.size[0]))  ノード \(t.count)")
         for c in t.children(0) where t.flags[c].contains(.synthetic) { out("  \(t.name(c)) \(fmt(t.size[c]))") }
 
-        let c = Categories.classify(t, purgeable: volume?.purgeable ?? 0)
+        // 古い書き出しにはパージ可能な量がないので、調べものでは環境変数で渡せるようにする。
+        let purgeable = (volume?.purgeable).flatMap { $0 > 0 ? $0 : nil }
+            ?? ProcessInfo.processInfo.environment["PURGEABLE"].flatMap(UInt64.init) ?? 0
+        let c = Categories.classify(t, purgeable: purgeable, apps: .current())
         out("\n== システムデータの合計 \(fmt(c.total))  パージ可能 \(fmt(c.purgeable)) を除くと \(fmt(c.totalExcludingPurgeable))")
+        out("   設定で別の項目: " + c.elsewhere.map { "\($0.key.rawValue) \(fmt($0.value))" }.joined(separator: "、") + "  設定に近い合計 \(fmt(c.settingsTotal))")
+        for (node, bucket) in c.bucketStarts.sorted(by: { t.size[$0.key] > t.size[$1.key] }).prefix(30) {
+            out("   \(bucket.rawValue) \(fmt(t.size[node]).padding(toLength: 10, withPad: " ", startingAt: 0)) \(short(t, node))")
+        }
         for g in c.groups {
-            out("\n## \(g.rule.name)  \(fmt(g.size))  (\(g.nodes.count) 箇所)")
+            let other = g.elsewhere.map { "\($0.key.rawValue) \(fmt($0.value))" }.joined(separator: "、")
+            out("\n## \(g.rule.name)  \(fmt(g.size))  (\(g.nodes.count) 箇所)" + (other.isEmpty ? "" : "  うち設定で\(other)"))
             for n in g.nodes.prefix(g.rule.id == Categories.unclassifiedID ? 40 : 10) {
                 let own = g.ownSize(of: n, in: t)
                 guard own >= 1_000_000 else { continue }
@@ -71,5 +79,26 @@ enum ClassificationReport {
         for c in t.sortedChildren(node).prefix(25) where t.size[c] >= 50_000_000 {
             Swift.print("  \(fmt(t.size[c]).padding(toLength: 10, withPad: " ", startingAt: 0)) \(t.name(c))")
         }
+    }
+
+    static func find(_ t: TreeStorage, _ path: String) -> Int? {
+        var parts = path.split(separator: "/").map(String.init)
+        if parts.first == "~" { parts = ["Users", NSUserName()] + parts.dropFirst() }
+        var node = 0
+        for part in parts {
+            guard let next = t.children(node).first(where: { t.name($0) == part }) else { return nil }
+            node = next
+        }
+        return node
+    }
+
+    static func bigFiles(_ t: TreeStorage, path: String, min: UInt64) {
+        guard let start = find(t, path) else { Swift.print("見つかりません"); return }
+        var total: UInt64 = 0
+        var stack = [start]
+        while let n = stack.popLast() {
+            if t.isDirectory(n) { stack.append(contentsOf: t.children(n)) } else if t.size[n] >= min { total += t.size[n] }
+        }
+        Swift.print("\(path) \(fmt(total))")
     }
 }

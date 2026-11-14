@@ -157,6 +157,9 @@ public struct Classification: Sendable {
         public var size: UInt64
         /// nodes のうち、中に別の種類が入れ子になっているものと、その容量。
         public var nested: [Int: UInt64] = [:]
+        /// size のうち、システム設定では別の項目に数えられていると思われる分。
+        public var elsewhere: [SettingsBucket: UInt64] = [:]
+        public var elsewhereTotal: UInt64 { elsewhere.values.reduce(0, +) }
 
         /// ノードの容量から入れ子の別の種類を除いた分。
         public func ownSize(of node: Int, in t: TreeStorage) -> UInt64 {
@@ -169,51 +172,90 @@ public struct Classification: Sendable {
     /// 空きが必要になれば macOS が消せる量。システム設定はこれをシステムデータに含めない。
     public var purgeable: UInt64 = 0
     public var total: UInt64 { groups.reduce(0) { $0 + $1.size } }
-    /// システム設定の数え方に近づけた合計。パージ可能な分を除く。
+    /// パージ可能な分を除いた合計。
     public var totalExcludingPurgeable: UInt64 { total - min(total, purgeable) }
+    /// システム設定が別の項目に数えていると思われる分の、項目ごとの合計。
+    public var elsewhere: [SettingsBucket: UInt64] {
+        groups.reduce(into: [:]) { sum, g in g.elsewhere.forEach { sum[$0.key, default: 0] += $0.value } }
+    }
+    /// システム設定の数え方に近づけた合計。パージ可能な分と、別の項目に数えられる分を除く。
+    public var settingsTotal: UInt64 {
+        let other = elsewhere.values.reduce(0, +)
+        return totalExcludingPurgeable - min(totalExcludingPurgeable, other)
+    }
+    /// 別の項目に数えられる範囲の入口のノード。
+    public var bucketStarts: [Int: SettingsBucket] = [:]
+
+    /// ノードかその祖先が、別の項目に数えられる範囲に入っているか。
+    public func settingsBucket(of node: Int, in t: TreeStorage) -> SettingsBucket? {
+        guard !bucketStarts.isEmpty else { return nil }
+        var p = node
+        while true {
+            if let b = bucketStarts[p] { return b }
+            if p == 0 { return nil }
+            p = Int(t.parent[p])
+        }
+    }
 }
 
 extension Categories {
-    public static func classify(_ t: TreeStorage, purgeable: UInt64 = 0) -> Classification {
+    public static func classify(_ t: TreeStorage, purgeable: UInt64 = 0, apps: InstalledApps = .empty) -> Classification {
         let allRules = rules + [snapshotsRule, unclassifiedRule]
         var nodes = Array(repeating: [Int](), count: allRules.count)
         var sizes = Array(repeating: Int64(0), count: allRules.count)
         var nested = Array(repeating: [Int: UInt64](), count: allRules.count)
+        var elsewhere = Array(repeating: [SettingsBucket: Int64](), count: allRules.count)
+        var bucketStarts: [Int: SettingsBucket] = [:]
         let snapshotsIndex = rules.count
         let unclassifiedIndex = rules.count + 1
 
         /// owner は (種類, その種類に当たった上のノード)。
-        func assign(_ node: Int, to rule: Int, owner: (rule: Int, node: Int)?) {
+        /// bucket はこのノードの容量を数える設定の項目、ownerBucket は上の種類がこのノードの容量を数えていた項目。
+        func assign(_ node: Int, to rule: Int, owner: (rule: Int, node: Int)?,
+                    bucket: SettingsBucket? = nil, ownerBucket: SettingsBucket? = nil) {
+            let size = Int64(t.size[node])
             nodes[rule].append(node)
-            sizes[rule] += Int64(t.size[node])
+            sizes[rule] += size
+            if let bucket { elsewhere[rule][bucket, default: 0] += size }
             if let owner {
-                sizes[owner.rule] -= Int64(t.size[node])
+                sizes[owner.rule] -= size
                 nested[owner.rule][owner.node, default: 0] += t.size[node]
+                if let ownerBucket { elsewhere[owner.rule][ownerBucket, default: 0] -= size }
             }
         }
 
         var components: [String] = []
-        func walk(_ node: Int, owner: (rule: Int, node: Int)?) {
+        func walk(_ node: Int, owner: (rule: Int, node: Int)?, bucket inherited: SettingsBucket?) {
             let rel = components
             if Glob.matchesAny(excluded, rel) { return }
             let inScope = Glob.matchesAnyPrefix(scope, rel)
             var current = owner
+            let start = inherited == nil ? settingsBucket(rel, apps: apps) : nil
+            let bucket = inherited ?? start
+            if let start { bucketStarts[node] = start }
             if let hit = rules.indices.first(where: { i in rules[i].patterns.contains { Glob.full($0[...], rel[...]) } }) {
-                assign(node, to: hit, owner: owner)
+                // 範囲がここから始まるなら、上の種類はこのノードを別の項目としては数えていない。
+                assign(node, to: hit, owner: owner, bucket: bucket, ownerBucket: start == nil ? bucket : nil)
                 current = (hit, node)
             } else if owner == nil, inScope, !t.flags[node].contains(.synthetic),
                       !rules.contains(where: { $0.patterns.contains { Glob.canExtend($0[...], rel[...]) } }) {
-                assign(node, to: unclassifiedIndex, owner: nil)
+                assign(node, to: unclassifiedIndex, owner: nil, bucket: bucket)
                 return
+            } else if let start, let owner {
+                // 種類の中で範囲が始まった。その分を上の種類の中で別の項目に移す。
+                elsewhere[owner.rule][start, default: 0] += Int64(t.size[node])
             }
+            let mayStartBelow = bucket == nil
+                && (perAppParents + documentPatterns).contains { Glob.canExtend($0[...], rel[...]) }
             guard t.isDirectory(node),
                   rules.contains(where: { $0.patterns.contains { Glob.canExtend($0[...], rel[...]) } })
+                    || mayStartBelow
                     || (current == nil && !inScope && couldEnterScope(rel)) || (current == nil && inScope)
             else { return }
             for child in t.children(node) {
                 if t.flags[child].contains(.synthetic) { continue }
                 components.append(t.name(child))
-                walk(child, owner: current)
+                walk(child, owner: current, bucket: bucket)
                 components.removeLast()
             }
         }
@@ -229,16 +271,17 @@ extension Categories {
                 continue
             }
             components = [t.name(child)]
-            walk(child, owner: nil)
+            walk(child, owner: nil, bucket: nil)
         }
 
         let groups = allRules.indices.compactMap { i -> Classification.Group? in
             guard !nodes[i].isEmpty, sizes[i] > 0 else { return nil }
-            var group = Classification.Group(rule: allRules[i], nodes: [], size: UInt64(max(0, sizes[i])), nested: nested[i])
+            var group = Classification.Group(rule: allRules[i], nodes: [], size: UInt64(max(0, sizes[i])), nested: nested[i],
+                                             elsewhere: elsewhere[i].compactMapValues { $0 > 0 ? UInt64($0) : nil })
             group.nodes = nodes[i].sorted { group.ownSize(of: $0, in: t) > group.ownSize(of: $1, in: t) }
             return group
         }
-        return Classification(groups: groups.sorted { $0.size > $1.size }, purgeable: purgeable)
+        return Classification(groups: groups.sorted { $0.size > $1.size }, purgeable: purgeable, bucketStarts: bucketStarts)
     }
 }
 

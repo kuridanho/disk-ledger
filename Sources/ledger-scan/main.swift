@@ -10,7 +10,10 @@ if arguments.first == "--load", let file = arguments.dropFirst().first {
     do {
         let (t, volume) = try TreeArchive.read(from: URL(fileURLWithPath: file))
         let rest = Array(arguments.dropFirst(2))
-        if rest.first == "--du" {
+        if rest.first == "--big", rest.count >= 3, let mb = UInt64(rest[2]) {
+            // 調べもの用: 場所の下の、指定した MB 以上のファイルの合計
+            ClassificationReport.bigFiles(t, path: rest[1], min: mb * 1_000_000)
+        } else if rest.first == "--du" {
             // 指定した場所の中を大きい順に出す。例: --du ~/Library/Application\ Support 2
             for path in rest.dropFirst() { ClassificationReport.listChildren(t, path: path) }
         } else {

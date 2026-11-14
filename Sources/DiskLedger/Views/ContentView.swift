@@ -59,13 +59,20 @@ struct SidebarView: View {
                         HStack {
                             Text("システムデータ")
                             Spacer()
-                            Text(Format.bytes(classification.totalExcludingPurgeable)).monospacedDigit()
+                            Text(Format.bytes(classification.settingsTotal)).monospacedDigit()
                         }
+                        // システム設定の数値と比べられるよう、合計は設定が数えない分を除いて出し、除いた分を添える。
                         if classification.purgeable > 0 {
-                            // システム設定の数値と比べられるよう、合計はパージ可能な分を除いて出す。
-                            Text("ほかに macOS が自動で消せる \(Format.bytes(classification.purgeable))")
+                            Text("ほかに macOS が自動で消せる分 \(Format.bytes(classification.purgeable))")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                        }
+                        ForEach(SettingsBucket.allCases, id: \.self) { bucket in
+                            if let size = classification.elsewhere[bucket], size > 0 {
+                                Text("ほかに設定では\(bucket.rawValue)に入る分 \(Format.bytes(size))")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -94,6 +101,11 @@ struct CategoryRow: View {
             Text(group.rule.verdict.rawValue)
                 .font(.caption)
                 .foregroundStyle(Palette.color(for: group.rule.verdict))
+            ForEach(group.elsewhere.sorted { $0.value > $1.value }, id: \.key) { bucket, size in
+                Text("うち \(Format.bytes(size)) は設定では\(bucket.rawValue)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.vertical, 2)
     }

@@ -63,7 +63,7 @@ final class LedgerModel {
     }
 
     /// 確認用に場所を指定したときは、許可を求めない。
-    private var needsPermission: Bool { launch.scanRoot == nil && !hasFullDiskAccess }
+    private var needsPermission: Bool { launch.scanRoot == nil && launch.loadPath == nil && !hasFullDiskAccess }
 
     var canScan: Bool { phase != .scanning && !needsPermission }
 
@@ -120,14 +120,21 @@ final class LedgerModel {
         // 確認用の場所指定では、許可を求める窓を決して出さないよう、該当する場所を読まない。
         let options = launch.scanRoot.map { DiskScanner.Options(rootPath: $0, includeVolumeSummary: false, skipPromptingPaths: true) }
             ?? DiskScanner.Options()
-        let scanner = DiskScanner(options: options)
+        let scanner: DiskScanner
+        if let file = launch.loadPath, let loaded = try? DiskScanner(archive: URL(fileURLWithPath: file)) {
+            scanner = loaded
+        } else {
+            scanner = DiskScanner(options: options)
+        }
         self.scanner = scanner
         classification = nil
         rows = []
         path = []
         selection = nil
         phase = .scanning
-        DispatchQueue.global(qos: .userInitiated).async { scanner.run() }
+        if !scanner.progress().finished {
+            DispatchQueue.global(qos: .userInitiated).async { scanner.run() }
+        }
 
         ticker = Task { [weak self] in
             while !Task.isCancelled {
@@ -146,7 +153,10 @@ final class LedgerModel {
     private func finish(_ scanner: DiskScanner) async {
         let tree = scanner.tree
         let purgeable = scanner.volume?.purgeable ?? 0
-        let result = await Task.detached(priority: .userInitiated) { tree.read { Categories.classify($0, purgeable: purgeable) } }.value
+        let result = await Task.detached(priority: .userInitiated) {
+            let apps = InstalledApps.current()
+            return tree.read { Categories.classify($0, purgeable: purgeable, apps: apps) }
+        }.value
         guard self.scanner === scanner else { return }
         classification = result
         phase = .done
@@ -207,6 +217,9 @@ final class LedgerModel {
                 }
                 if t.isDirectory(i), i != 0, AppNames.perAppParents.contains(t.name(Int(t.parent[i]))) {
                     detail = AppNames.name(forFolder: name).map { atCategoryRoot ? "\($0)・\(detail ?? "")" : $0 } ?? detail
+                }
+                if let bucket = classification?.settingsBucket(of: i, in: t) {
+                    detail = [detail, "設定では\(bucket.rawValue)"].compactMap { $0 }.joined(separator: "・")
                 }
                 return ItemRow(id: i, name: name, detail: detail, size: size, share: Double(size) / denominator,
                                flags: t.flags[i], modified: t.modified[i])
