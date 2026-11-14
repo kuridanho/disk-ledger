@@ -36,6 +36,28 @@ import Testing
         #expect(scanner.progress().finished)
     }
 
+    /// 書き出した走査結果を読み戻すと、同じ木になる。
+    @Test func archiveRoundTrip() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("ledger-test-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: root.appendingPathComponent("a/日本語"), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 50_000).write(to: root.appendingPathComponent("a/日本語/x.bin"))
+        let scanner = DiskScanner(options: .init(rootPath: root.path, includeVolumeSummary: false, threads: 2))
+        scanner.run()
+        let file = root.appendingPathComponent("tree.ledger")
+        let volume = VolumeInfo(name: "HD", capacity: 10, available: 3, dataUsed: 5, systemUsed: 2)
+        try scanner.tree.read { try TreeArchive.write($0, volume: volume, to: file) }
+        let (loaded, v) = try TreeArchive.read(from: file)
+        scanner.tree.read { t in
+            #expect(loaded.count == t.count)
+            #expect(loaded.size == t.size)
+            #expect(loaded.firstChild == t.firstChild)
+            #expect((0 ..< t.count).map(loaded.path) == (0 ..< t.count).map(t.path))
+        }
+        #expect(v?.dataUsed == 5 && v?.systemUsed == 2)
+    }
+
     @Test func marksUnreadableDirectory() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory.appendingPathComponent("ledger-test-\(UUID().uuidString)")
@@ -103,7 +125,8 @@ import Testing
             ("Users/a/Library/Application Support/Foo/data.db", 50),
             ("Users/a/Library/Application Support/Foo/Code Cache/js", 30),
             ("Users/a/Library/Mail/V10/m", 999),
-            ("Users/a/Library/Weird/thing", 7),
+            ("Users/a/Library/Weird/thing", 3),
+            ("usr/share/thing", 7),
             ("Users/a/Documents/report.pdf", 500),
             ("Users/a/.npm/_cacache/x", 20),
             ("Applications/App.app/bin", 400),
@@ -113,16 +136,16 @@ import Testing
         let c = Categories.classify(t)
         let sizes = Dictionary(uniqueKeysWithValues: c.groups.map { ($0.id, $0.size) })
         #expect(sizes["caches"] == 130)       // Code Cache はアプリの補助データから外してキャッシュに入れる
-        #expect(sizes["app-data"] == 50)
+        #expect(sizes["app-data"] == 53)  // ~/Library の直下のよく知らないフォルダもアプリの補助データ
         #expect(sizes["dev-cache"] == 20)
         #expect(sizes["temporary"] == 40)
         #expect(sizes["macos-data"] == 60)
         #expect(sizes[Categories.snapshotsID] == 80)
         #expect(sizes[Categories.unclassifiedID] == 7)
         // メール、書類、アプリ、macOS 本体はシステムデータに数えない。
-        #expect(c.total == 130 + 50 + 20 + 40 + 60 + 80 + 7)
+        #expect(c.total == 130 + 53 + 20 + 40 + 60 + 80 + 7)
         let unclassified = try #require(c.groups.first { $0.id == Categories.unclassifiedID })
-        #expect(unclassified.nodes.map(t.name) == ["Weird"])
+        #expect(unclassified.nodes.map(t.name) == ["share"])
     }
 
     @Test func globMatching() {

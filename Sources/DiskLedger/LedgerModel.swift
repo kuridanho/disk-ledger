@@ -161,6 +161,15 @@ final class LedgerModel {
                 open(match)
             }
         }
+        if let path = launch.dumpPath {
+            let volume = scanner.volume
+            let error: String? = tree.read { t in
+                do { try TreeArchive.write(t, volume: volume, to: URL(fileURLWithPath: path)); return nil } catch { return "\(error)" }
+            }
+            if let error { FileHandle.standardError.write(Data((error + "\n").utf8)) }
+            NSApp.terminate(nil)
+            return
+        }
         if let path = launch.snapshotPath {
             Task {
                 try? await Task.sleep(for: .seconds(1))

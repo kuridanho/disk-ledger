@@ -3,7 +3,25 @@ import LedgerCore
 
 // 使い方: ledger-scan [パス]
 // パスを省くと起動ディスクのデータボリューム全体を読み、所要時間と大きい項目を出す。
+//        ledger-scan --load <ファイル>
+// アプリの --dump で書き出した走査結果を読み、分類の内訳を出す。
 let arguments = CommandLine.arguments.dropFirst()
+if arguments.first == "--load", let file = arguments.dropFirst().first {
+    do {
+        let (t, volume) = try TreeArchive.read(from: URL(fileURLWithPath: file))
+        let rest = Array(arguments.dropFirst(2))
+        if rest.first == "--du" {
+            // 指定した場所の中を大きい順に出す。例: --du ~/Library/Application\ Support 2
+            for path in rest.dropFirst() { ClassificationReport.listChildren(t, path: path) }
+        } else {
+            ClassificationReport.print(t, volume: volume)
+        }
+        exit(0)
+    } catch {
+        FileHandle.standardError.write(Data("\(error)\n".utf8))
+        exit(1)
+    }
+}
 let options: DiskScanner.Options
 if let path = arguments.first {
     options = DiskScanner.Options(rootPath: path, includeVolumeSummary: false)
